@@ -170,5 +170,4 @@ terraform apply
 
 ## Related
 
-- **[Ceiba](https://davidpalacios.dev)** — the product this infrastructure runs.
 - **Homelab platform** — the single-node, four-failure-domain environment that serves as Ceiba's dev/staging tier. It doesn't disappear when production moves to AWS; it stops being the production target.
