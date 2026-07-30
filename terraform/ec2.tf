@@ -2,13 +2,13 @@
 # plane + Ceiba runtime + self-hosted Redis, all in containers.
 # See docs/ADR-0002-graviton-instances.md.
 #
-# IMPORTANT — known gap, not silently worked around: neither ceiba-runtime
-# nor ceiba-control-plane currently has a Dockerfile (confirmed absent as of
-# this pass). This resource provisions the host and installs the container
-# runtime; it deliberately does NOT attempt to build or pull application
-# images that don't exist yet. Building the app containers is an
-# application-repo change outside this repo's mandate — see this pass's
-# summary output for the flagged follow-up.
+# Both app repos now have production Dockerfiles (ceiba-runtime 7437ee0,
+# ceiba-control-plane cbda7a5, both built and run-verified on arm64), so the
+# gap this comment used to flag is closed. This resource still provisions
+# only the host and the container runtime: it deliberately does NOT pull or
+# start application images, because that requires a registry and a
+# production compose stack that do not exist yet (rollout-runbook.md
+# steps 10-11). Bringing those up stays an explicit operator step.
 
 data "aws_ami" "al2023_arm64" {
   most_recent = true
