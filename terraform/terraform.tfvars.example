@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars (gitignored) and fill in real values.
+# Never commit terraform.tfvars — only this .example file is tracked.
+
+aws_region          = "us-east-1"
+environment         = "prod"
+owner_tag           = "david"
+availability_zone   = "us-east-1a"
+availability_zone_b = "us-east-1b" # must differ from availability_zone - required by RDS's DB subnet group, not a Multi-AZ signal
+budget_alert_email  = "you@example.com"
+
+# Everything else has a sensible Phase-1 default in variables.tf — override
+# here only if you have a specific reason to.

@@ -1,0 +1,84 @@
+name: terraform-plan
+
+# Runs `terraform plan` on PR — never `apply`. Matches the README's stated
+# intent and this repo's standing review-gate discipline (no automated actor
+# is authorized to change real infrastructure; a human always applies).
+#
+# PREREQUISITE THIS WORKFLOW CANNOT SET UP ITSELF: an IAM role trusted for
+# GitHub Actions OIDC (read-only permissions sufficient for `plan`) must
+# exist in the AWS account, and its ARN must be set as the repository
+# variable AWS_PLAN_ROLE_ARN, before this workflow can authenticate. Until
+# that's done, this workflow will fail at the "Configure AWS credentials"
+# step — that failure is expected and correct (fail closed, not open) rather
+# than falling back to long-lived access-key secrets.
+
+on:
+  pull_request:
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-plan.yml"
+
+permissions:
+  contents: read
+  id-token: write # required for OIDC federation to AWS — no long-lived keys
+  pull-requests: write # required to post the plan output as a PR comment
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.8"
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+
+      - name: Configure AWS credentials (OIDC, read-only plan role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Terraform init
+        run: terraform init
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        id: plan
+        run: terraform plan -no-color -input=false
+        env:
+          # budget_alert_email has no default (variables.tf) precisely so it
+          # can't be silently applied — CI supplies a placeholder so `plan`
+          # can run read-only without a real operator email in a repo
+          # variable. This value is never used for anything but computing
+          # the plan diff.
+          TF_VAR_budget_alert_email: "ci-plan-placeholder@useceiba.com"
+        continue-on-error: true
+
+      - name: Comment plan on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### Terraform Plan
+            \`\`\`
+            ${{ steps.plan.outputs.stdout }}
+            \`\`\`
+            `;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output,
+            });
+
+      - name: Fail if plan errored
+        if: steps.plan.outcome == 'failure'
+        run: exit 1

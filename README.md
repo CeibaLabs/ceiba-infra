@@ -8,11 +8,13 @@ Infrastructure and deployment for [Ceiba App](https://app.useceiba.com), [Ceiba 
 
 ## Status
 
-> **Current phase:** initial deployment. See [Rollout](#rollout) for what's live.
+> **Current phase:** draft infrastructure, not yet applied. Nothing in this repo has been provisioned against a real AWS account — no VPC, no EC2 instance, no RDS instance, nothing live anywhere. See [Rollout](#rollout) for the ordered plan and `docs/rollout-runbook.md` for the fully detailed, automated-vs-manual checklist.
 
-This repo is being built alongside the deployment, not written up after it. Where initial provisioning happened through the console or CLI, that's noted explicitly rather than implied to have been infrastructure-as-code from the first commit — resources are codified as Terraform incrementally, and the commit history reflects the real order of operations.
+This repo's Terraform is complete and `terraform plan`-able (validated locally: `terraform validate` and a dummy-credential `terraform plan` both pass, confirming the configuration is structurally sound) but has never been applied. Turning this from a draft into live infrastructure is a deliberate, separate authorization step — a human reviews the plan and runs `terraform apply` themselves; no automated actor does this. Nothing was provisioned through the console or CLI outside of Terraform either — there is no informally-provisioned resource this repo's Terraform needs to "catch up" to.
 
 Terraform state is currently local. That's acceptable for a single-operator project and is stated here deliberately rather than left as a silent gap; remote state (S3 + DynamoDB locking) is the natural next step the moment a second operator or a CI apply enters the picture. See [ADR-0003](docs/ADR-0003-local-state.md).
+
+**Known gap, flagged rather than silently worked around:** neither `ceiba-runtime` nor `ceiba-control-plane` currently has a Dockerfile, so the EC2 host's application containers (step 9 of `docs/rollout-runbook.md`) can't be built or deployed yet — that requires a follow-up Builder slice in each app repo, outside this repo's own scope.
 
 ---
 
@@ -36,12 +38,15 @@ Users / API clients
 │        │ 5432                                         │
 │  Private subnet — no NAT Gateway                      │
 │    RDS Postgres db.t4g.micro                          │
+│  Private subnet B — empty, second AZ                  │
 └───────────────────────────────────────────────────────┘
         │
    S3 (backups, static assets) · CloudTrail · CloudWatch
         │
    AWS Budgets → SNS → Lambda (auto-shutdown)
 ```
+
+The second private subnet holds nothing and costs nothing — AWS requires a DB subnet group to span at least two Availability Zones even when the database instance itself is single-AZ, so it exists purely to make that subnet group legal to create. RDS stays single-AZ in Phase 1; Multi-AZ remains an explicit Phase 2 decision.
 
 RDS never initiates outbound internet traffic — it only accepts inbound connections from the EC2 security group, so there will be no need for a NAT Gateway (required only when something in a private subnet needs to reach *out*, and nothing here does). Skipping it removes the single largest fixed hidden cost in this small AWS deployment: roughly $33/month just for the gateway to exist, before a single byte flows through it. 
 
@@ -140,31 +145,38 @@ The most common cause of a catastrophic AWS bill isn't a design mistake — it's
 
 ```
 ceiba-infra/
-├── diagrams/                    architecture diagrams
+├── diagrams/
+│   ├── aws-deployment-architecture.svg   source (from the strategy doc's Mermaid diagram)
+│   └── aws-deployment-architecture.png   rendered, referenced above
 ├── terraform/
+│   ├── providers.tf  variables.tf  outputs.tf      scaffolding the README's original list didn't enumerate
 │   ├── vpc.tf  ec2.tf  rds.tf  iam.tf
 │   ├── budgets.tf  cloudwatch-billing-alarm.tf
-│   └── lambda-auto-shutdown/    handler + least-privilege policy
+│   ├── s3-and-audit.tf                             S3 backups bucket + CloudTrail (already-committed architecture, not a new file the README named)
+│   ├── terraform.tfvars.example
+│   └── lambda-auto-shutdown/    handler.py + iam-policy.json (reference copy of the live iam.tf policy)
 ├── docs/
 │   ├── ADR-0001-no-nat-gateway.md
 │   ├── ADR-0002-graviton-instances.md
 │   ├── ADR-0003-local-state.md
 │   ├── billing-guardrail-runbook.md
-│   └── cost-breakdown.md
+│   ├── cost-breakdown.md
+│   └── rollout-runbook.md                          full automated-vs-manual step list; this section is the short version
 └── .github/workflows/
-    └── terraform-plan.yml       runs `terraform plan` on PR
+    └── terraform-plan.yml       runs `terraform plan` on PR (needs an OIDC role ARN wired in first — see the workflow file)
 ```
 
 ## Running it
 
 ```bash
 cd terraform
+cp terraform.tfvars.example terraform.tfvars   # fill in budget_alert_email at minimum
 terraform init
 terraform plan     # always read the plan; never apply blind
 terraform apply
 ```
 
-`.tfstate` and `*.tfvars` are gitignored. Nothing in this repo should ever contain a real secret.
+`.tfstate` and `*.tfvars` are gitignored. Nothing in this repo should ever contain a real secret — see `docs/rollout-runbook.md` for how real secrets get into Secrets Manager instead.
 
 ---
 

@@ -1,0 +1,26 @@
+{
+  "_comment": "Reference copy of this Lambda's execution-role policy, for human review outside Terraform HCL. The live resource is terraform/iam.tf's aws_iam_role_policy.lambda_auto_shutdown — keep both in sync if either changes. Source: ceiba_aws_deployment_strategy.md §5.2, tightened 2026-07-28 (ec2:StopInstances scoped to the one instance, not account-wide '*' — see docs/ or the fix/infra-apply-blockers branch that made this change).",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "StopCeibaInstance",
+      "Effect": "Allow",
+      "Action": ["ec2:StopInstances"],
+      "Resource": "arn:aws:ec2:<region>:<account-id>:instance/<instance-id>",
+      "_comment": "The live Terraform resolves this to aws_instance.app.arn directly at apply time. This placeholder form is shown here only because a static JSON reference file can't run Terraform interpolation."
+    },
+    {
+      "Sid": "DescribeInstances",
+      "Effect": "Allow",
+      "Action": ["ec2:DescribeInstances"],
+      "Resource": "*",
+      "_comment": "ec2:DescribeInstances genuinely does not support resource-level permissions - '*' is correct and required here, not a scoping gap."
+    },
+    {
+      "Sid": "LambdaOwnLogs",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:*:*:*"
+    }
+  ]
+}
