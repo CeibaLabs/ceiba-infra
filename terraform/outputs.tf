@@ -32,3 +32,13 @@ output "billing_alert_topic_arn" {
   description = "SNS topic backing both the CloudWatch billing alarm and AWS Budgets notifications."
   value       = aws_sns_topic.billing_alert.arn
 }
+
+output "ecr_runtime_repository_url" {
+  description = "ECR repository URL for ceiba-runtime - copy into deploy/.env as RUNTIME_IMAGE's registry prefix."
+  value       = aws_ecr_repository.runtime.repository_url
+}
+
+output "ecr_control_plane_repository_url" {
+  description = "ECR repository URL for ceiba-control-plane - copy into deploy/.env as CONTROL_PLANE_IMAGE's registry prefix."
+  value       = aws_ecr_repository.control_plane.repository_url
+}

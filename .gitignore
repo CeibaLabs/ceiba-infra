@@ -9,5 +9,8 @@ terraform/crash.log
 terraform/crash.*.log
 terraform/lambda-auto-shutdown/handler.zip
 
+# Deploy
+deploy/.env
+
 # OS
 .DS_Store

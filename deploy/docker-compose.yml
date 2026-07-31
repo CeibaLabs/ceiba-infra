@@ -1,0 +1,76 @@
+# Production compose stack for the Ceiba app host (rollout-runbook.md step 11).
+#
+# Images come from env vars, never hardcoded, so this same file works both
+# against ECR in production and against locally-built images during
+# verification - see .env.example.
+#
+# Only caddy publishes a port. control-plane and runtime are reachable only
+# on the compose network (caddy:control-plane:3000, caddy:runtime:8080) -
+# neither is exposed directly on the host. Both app images already declare
+# a working HEALTHCHECK (see each repo's Dockerfile); this file does not
+# redefine them, it only depends on them via service_healthy.
+
+services:
+  control-plane:
+    image: ${CONTROL_PLANE_IMAGE}
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_started
+
+  runtime:
+    image: ${RUNTIME_IMAGE}
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_started
+
+  # Self-hosted Redis (Phase 1 - see ADR-0002-graviton-instances.md and the
+  # strategy doc's Phase 2 note on replacing this with ElastiCache later).
+  # No published port: reachable only on the compose network, at
+  # redis://redis:6379, which is what RUNTIME_IMAGE's REDIS_URL should be
+  # set to in .env.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+
+  # Automatic HTTPS is the entire reason Caddy is here - see Caddyfile.
+  # Losing the data volume means re-issuing certificates and can hit Let's
+  # Encrypt rate limits, so it's a named volume, not a bind mount.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    # Deliberately NOT env_file: .env. Caddy is the one internet-facing
+    # process in this stack, and .env carries every application credential -
+    # Clerk, Stripe, Resend, DATABASE_URL. With env_file, all of them showed
+    # up in Caddy's own environment (confirmed directly via `docker exec
+    # caddy env` during verification), readable from /proc/self/environ by
+    # anything that ever gets code execution in this container. Caddy needs
+    # exactly the three placeholders its Caddyfile references, so it gets
+    # exactly those, interpolated from the same .env by Compose itself.
+    environment:
+      CEIBA_APP_HOST: ${CEIBA_APP_HOST}
+      CEIBA_API_HOST: ${CEIBA_API_HOST}
+      CEIBA_ACME_EMAIL: ${CEIBA_ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      control-plane:
+        condition: service_healthy
+      runtime:
+        condition: service_healthy
+
+volumes:
+  redis-data:
+  caddy-data:
+  caddy-config:

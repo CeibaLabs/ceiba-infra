@@ -23,8 +23,16 @@ Steps 4-8 can reasonably be applied together as one `terraform apply` run, or sp
 ## 2. Application containers
 
 9. **[DONE — 2026-07-28]** Production Dockerfiles now exist in both app repos: `ceiba-runtime/Dockerfile` (`7437ee0`) and `ceiba-control-plane/Dockerfile` (`cbda7a5`), both multi-stage, `node:22-alpine`, arm64 per `ADR-0002-graviton-instances.md`, both verified with real `docker buildx build --platform linux/arm64` runs *and* running containers reaching Docker health status `healthy`. Each resolves its sibling-repo `file:../ceiba-core-domain` dependency with Docker's named additional build context, so both must be built with `--build-context core-domain=../ceiba-core-domain` from the repo's own directory — a plain `docker build .` cannot see outside that directory and will fail.
-10. **[MANUAL, once #9 unblocks]** Push built images to a registry the EC2 host can pull from (ECR is the natural choice, not yet provisioned in this Terraform since it's downstream of #9 — add `ecr.tf` alongside the Dockerfiles work).
-11. **[MANUAL, once #9-10 unblock]** From an SSM Session Manager shell on the app host (no SSH needed — `iam.tf`'s SSM role already supports this), write the production `docker-compose.yml` (control plane + runtime + self-hosted Redis + Caddy) and bring it up. `ec2.tf`'s `user_data` deliberately stops short of this step — see the comment at the top of that file.
+10. **[MANUAL, once #9 unblocks]** Build both images for arm64 and push to the two private ECR repositories `terraform/ecr.tf` (this slice) provisions — `ceiba-runtime` and `ceiba-control-plane`, immutable tags, scan-on-push, a 10-tagged-image/1-day-untagged lifecycle policy. Authenticate Docker to ECR first (`aws ecr get-login-password --region <region> | docker login --username AWS --password-stdin <account-id>.dkr.ecr.<region>.amazonaws.com`), then from each app repo's own directory:
+
+    ```
+    docker buildx build --platform linux/arm64 \
+      --build-context core-domain=../ceiba-core-domain \
+      -t <ecr-url>:<tag> --push .
+    ```
+
+    `<ecr-url>` is `terraform output ecr_runtime_repository_url` / `ecr_control_plane_repository_url`. The named build context is required — a plain `docker build .` cannot see outside the repo's own directory and will fail (see step 9). **On an x86 machine this runs under QEMU emulation and takes on the order of 20+ minutes per image — that is expected, not a hang.** A future CD workflow would remove this manual step, but it's blocked on the same private-`ceiba-core-domain` checkout credential that blocks CI for the two app repos (see `_workspace/blockers.md` / the CI-workflows slice) — not something to solve here.
+11. **[MANUAL, once #10 unblocks]** Copy `ceiba-infra/deploy/` to the app host (e.g. `scp` over an SSM port-forwarding session, or `aws s3 cp` via the backups bucket as a relay — no SSH needed either way, `iam.tf`'s SSM role already supports Session Manager). On the host: copy `deploy/.env.example` to `deploy/.env`, fill in the two ECR image references (with the tag just pushed in step 10) plus every credential from Secrets Manager per step 13 below and `deploy/.env.example`'s own mapping comment, set `CEIBA_APP_HOST=app.useceiba.com` / `CEIBA_API_HOST=api.useceiba.com` (D-049 — `ceiba-docs` is not part of this stack; it stays on Vercel), then `docker compose -f deploy/docker-compose.yml up -d`. `ec2.tf`'s `user_data` deliberately stops short of this step — see the comment at the top of that file.
 
 ## 3. Database and secrets
 

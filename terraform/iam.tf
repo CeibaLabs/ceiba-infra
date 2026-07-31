@@ -67,6 +67,44 @@ resource "aws_iam_role_policy" "ec2_s3_backups" {
   policy = data.aws_iam_policy_document.ec2_s3_backups.json
 }
 
+# Pull only, from the two repositories the app images actually live in
+# (ecr.tf) - the host must never be able to push. Split into two statements
+# because the three actions do not share resource-level support, confirmed
+# against AWS's Service Authorization Reference for Amazon ECR (2026-07-30)
+# rather than assumed - the apply-blockers fix earlier in this repo's
+# history was a confidently-worded IAM comment that turned out to be wrong,
+# and this statement split exists specifically so that doesn't repeat.
+data "aws_iam_policy_document" "ec2_ecr_pull" {
+  statement {
+    # ecr:GetAuthorizationToken genuinely has no resource-level support -
+    # it must be "*", regardless of which repositories are pulled from.
+    sid       = "EcrAuthToken"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  statement {
+    # These three DO support resource-level permissions - scoped to the two
+    # repository ARNs this host is meant to pull from, nothing wider.
+    sid = "EcrPullFromCeibaRepos"
+    actions = [
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:BatchCheckLayerAvailability",
+    ]
+    resources = [
+      aws_ecr_repository.runtime.arn,
+      aws_ecr_repository.control_plane.arn,
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "ec2_ecr_pull" {
+  name   = "ceiba-ec2-ecr-pull"
+  role   = aws_iam_role.ec2.id
+  policy = data.aws_iam_policy_document.ec2_ecr_pull.json
+}
+
 resource "aws_iam_instance_profile" "ec2" {
   name = "ceiba-ec2-profile"
   role = aws_iam_role.ec2.name

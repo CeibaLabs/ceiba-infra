@@ -1,0 +1,33 @@
+# Caddy's automatic HTTPS is the entire reason it's here - nothing else
+# (no rate limiting, no custom headers, no auth) belongs in this file.
+#
+# Hostnames come from env placeholders, not hardcoded, so the exact same
+# file works in both places:
+#   production:            CEIBA_APP_HOST=app.useceiba.com
+#                           CEIBA_API_HOST=api.useceiba.com
+#   local verification:    CEIBA_APP_HOST=http://app.localhost
+#                           CEIBA_API_HOST=http://api.localhost
+# An explicit "http://" scheme tells Caddy to serve plain HTTP for that site
+# and skip automatic HTTPS entirely - which is what makes local verification
+# possible without touching this file, since *.localhost doesn't resolve
+# publicly and Caddy would otherwise try (and fail) to get a real
+# certificate for it via ACME.
+{
+	email {$CEIBA_ACME_EMAIL}
+}
+
+{$CEIBA_APP_HOST} {
+	reverse_proxy control-plane:3000
+
+	log {
+		output stdout
+	}
+}
+
+{$CEIBA_API_HOST} {
+	reverse_proxy runtime:8080
+
+	log {
+		output stdout
+	}
+}
