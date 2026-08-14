@@ -9,7 +9,7 @@ Pricing below was independently re-verified on **2026-07-13** against current pu
 | Component | Choice | Est. monthly | 2026-07-13 verification |
 |---|---|---:|---|
 | Compute | EC2 `t4g.small` (Graviton), containers for control plane + runtime + Redis | ~$12.26 | Confirmed: $0.0168/hr = $12.264/mo on-demand, us-east-1 |
-| EBS root volume | 20 GB gp3 | ~$1.60 | Confirmed: gp3 ≈ $0.08/GB-mo × 20GB |
+| EBS root volume | 30 GB gp3 | ~$2.40 | Corrected 2026-08-11 from an incorrect 20GB baseline: first `terraform apply` in `ca-central-1` failed with `InvalidBlockDeviceMapping` — the resolved AL2023 arm64 AMI's root snapshot required >= 30GB, a real AWS-enforced floor, not a preference. `variables.tf`'s default now matches. |
 | Public IPv4 address | 1 in-use address @ $0.005/hr | ~$3.65 | Confirmed: $0.005/hr × 730hr, unchanged since Feb 2024 |
 | Database | RDS Postgres `db.t4g.micro`, single-AZ | ~$11.68-12.41 | Confirmed in range: $0.016/hr ≈ $11.68/mo on-demand, us-east-1 |
 | DB storage | 20 GB gp3 | ~$2.30 | Confirmed: RDS gp3 storage rate ≈ $0.115/GB-mo × 20GB |
@@ -19,7 +19,7 @@ Pricing below was independently re-verified on **2026-07-13** against current pu
 | **NAT Gateway** | **Skipped entirely** | **$0** | See `ADR-0001-no-nat-gateway.md` |
 | Observability | CloudWatch + CloudTrail, within always-free allowance | $0 | Confirmed within free-tier scope at this resource count |
 | S3 | Backups + static assets | ~$0.25 | Small-object estimate, standard S3 Standard rate |
-| | **Baseline total** | **~$32.24-32.97** | ~40-41% of the $80 ceiling |
+| | **Baseline total** | **~$33.04-33.77** | ~41-42% of the $80 ceiling |
 
 The public IPv4 line is easy to overlook and easy to get wrong in a back-of-envelope estimate — AWS has charged $0.005/hour per public IPv4 address, in-use or idle, since February 2024, across EC2, RDS, EKS, and anything else that can hold one. `terraform/ec2.tf` provisions exactly one (`aws_eip.app`) and nothing else in this configuration allocates a public IPv4, so this line item is the complete public-IP cost, not a partial one.
 
@@ -37,6 +37,8 @@ Additive, not a rebuild — nothing in Phase 1 needs to be torn down to add thes
 ## Sourcing
 
 EC2, RDS, and public-IPv4 figures were checked directly against current AWS pricing references (economize.cloud, Vantage `instances.vantage.sh`, and AWS's own EC2/RDS on-demand pricing pages) on 2026-07-13. Route 53, S3, and CloudWatch/CloudTrail free-tier figures were not re-sourced independently this pass since they've been stable, low-variance line items for years and are a small fraction of the total either way — if the operator wants those independently re-verified before `apply`, that's a five-minute check, not a structural risk to the plan.
+
+**Region note:** the figures above were sourced against `us-east-1` pricing; the actual deployment target is `ca-central-1` (confirmed live via `terraform apply`, 2026-08-11). AWS's per-region price variance for these specific line items is typically a few percent, not a structural risk to the $80 ceiling — but these numbers are an approximation for `ca-central-1`, not a region-specific quote. The one figure that was NOT an estimate-vs-region-variance issue was the EBS root volume: that was a straightforwardly wrong assumption (20GB), corrected above from the real `apply`-time error, not from re-pricing.
 
 ## What would actually threaten the $80 ceiling
 

@@ -133,14 +133,20 @@ resource "aws_security_group" "rds" {
     security_groups = [aws_security_group.ec2.id]
   }
 
-  egress {
-    description = "No outbound needed - RDS never initiates outbound traffic."
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = []
-  }
-
+  # Deliberately no egress block at all - not an oversight, and not the same
+  # thing as the empty-cidr_blocks egress block this file used to declare.
+  # Confirmed empirically against the real applied resource (2026-08-11):
+  # that block never created a real rule - AWS has no
+  # valid target to authorize from an empty cidr_blocks list, so the
+  # provider made no API call for it, and a `terraform plan` against the
+  # real refreshed state showed it as permanent drift ("~ update in-place",
+  # re-adding a rule that was never actually there and never will be this
+  # way). The live security group has had zero egress rules since the
+  # original apply - which is the actually-correct, more-restrictive-than-
+  # intended outcome for a resource that never needs to send outbound
+  # traffic - and omitting the block entirely is what makes Terraform's
+  # config match that reality instead of re-proposing a no-op change on
+  # every future plan.
   tags = {
     Name = "ceiba-rds-sg"
   }

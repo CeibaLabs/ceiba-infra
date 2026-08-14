@@ -3,14 +3,27 @@ terraform/.terraform/
 terraform/.terraform.lock.hcl
 terraform/*.tfstate
 terraform/*.tfstate.*
-terraform/terraform.tfvars
-terraform/*.auto.tfvars
+# Broad on purpose: any *.tfvars file, not just terraform.tfvars, since a
+# variable file is where real values live. *.tfvars.example does not match
+# this pattern and stays tracked.
+terraform/*.tfvars
+terraform/*.tfplan
 terraform/crash.log
 terraform/crash.*.log
 terraform/lambda-auto-shutdown/handler.zip
 
-# Deploy
+# Deploy — the filled-in env file holds every application credential
 deploy/.env
+deploy/.env.*
+!deploy/.env.example
+
+# Credentials and key material must never appear in this repo, under any name
+*.pem
+*.key
+*.p12
+*.pfx
+.aws/
+credentials
 
 # OS
 .DS_Store

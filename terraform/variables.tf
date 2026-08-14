@@ -81,9 +81,19 @@ variable "ec2_instance_type" {
 }
 
 variable "ec2_root_volume_size_gb" {
-  description = "Root EBS volume size in GB (gp3)."
+  description = <<-EOT
+    Root EBS volume size in GB (gp3). 30 is not an arbitrary round number -
+    it is the confirmed minimum for the al2023-ami-*-arm64 AMI actually
+    resolved in ca-central-1 at first-apply time (2026-08-11): AWS rejected
+    a 20GB root volume with "Volume of size 20GB is smaller than snapshot
+    'snap-0dc130a50e2e0c33b', expect size >= 30GB". A new EBS volume can
+    always be created larger than its source snapshot, never smaller.
+    If a future AMI resolves with a larger snapshot floor than 30GB, this
+    same error will recur with the actual required minimum stated in it -
+    that is a real signal to raise this value again, not a bug.
+  EOT
   type        = number
-  default     = 20
+  default     = 30
 }
 
 variable "rds_instance_class" {

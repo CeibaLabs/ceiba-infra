@@ -8,13 +8,17 @@ Infrastructure and deployment for [Ceiba App](https://app.useceiba.com), [Ceiba 
 
 ## Status
 
-> **Current phase:** draft infrastructure, not yet applied. Nothing in this repo has been provisioned against a real AWS account — no VPC, no EC2 instance, no RDS instance, nothing live anywhere. See [Rollout](#rollout) for the ordered plan and `docs/rollout-runbook.md` for the fully detailed, automated-vs-manual checklist.
+> **Current phase:** applied and live. The Phase 1 stack is deployed in `ca-central-1` and serving production traffic over HTTPS — `app.useceiba.com` and `api.useceiba.com` both respond. See [Rollout](#rollout) for the ordered plan and `docs/rollout-runbook.md` for the detailed automated-vs-manual checklist.
 
-This repo's Terraform is complete and `terraform plan`-able (validated locally: `terraform validate` and a dummy-credential `terraform plan` both pass, confirming the configuration is structurally sound) but has never been applied. Turning this from a draft into live infrastructure is a deliberate, separate authorization step — a human reviews the plan and runs `terraform apply` themselves; no automated actor does this. Nothing was provisioned through the console or CLI outside of Terraform either — there is no informally-provisioned resource this repo's Terraform needs to "catch up" to.
+**Deploying for the first time? Start at [`docs/operator-deployment-guide.md`](docs/operator-deployment-guide.md).** It's the front door — identity setup (non-root, AWS IAM Identity Center), `terraform apply`, images to ECR, bringing the stack up, DNS/TLS, and the landing-site promotion gate, in order.
+
+Every resource here was created by `terraform apply`, reviewed and run by a human. **No automated actor applies infrastructure**, and nothing was provisioned through the console or CLI outside Terraform — there is no informally-provisioned resource this repo's Terraform needs to "catch up" to. The CI workflow runs `terraform plan` on pull requests only; it never applies.
+
+Note that `terraform plan` cannot be rehearsed without real credentials: the AWS provider validates against STS before planning, and `ec2.tf`/`s3-and-audit.tf` read data sources that require live API calls. `terraform validate` checks Terraform's own schema, not AWS's API constraints — the two are not the same thing, and the difference is exactly where the first apply's real failures showed up.
 
 Terraform state is currently local. That's acceptable for a single-operator project and is stated here deliberately rather than left as a silent gap; remote state (S3 + DynamoDB locking) is the natural next step the moment a second operator or a CI apply enters the picture. See [ADR-0003](docs/ADR-0003-local-state.md).
 
-**Known gap, flagged rather than silently worked around:** neither `ceiba-runtime` nor `ceiba-control-plane` currently has a Dockerfile, so the EC2 host's application containers (step 9 of `docs/rollout-runbook.md`) can't be built or deployed yet — that requires a follow-up Builder slice in each app repo, outside this repo's own scope.
+**Known gaps, flagged rather than silently worked around:** there is no CD — images are built and pushed by hand, because both app images depend on a private sibling repository that CI cannot yet check out; and `docs.useceiba.com` is not served by this stack at all (`ceiba-docs` has no container here and is hosted separately).
 
 ---
 
@@ -61,7 +65,7 @@ Hard ceiling: **$80/month.** Target baseline: **~$30–40/month.**
 | Component | Choice | Est. monthly |
 |---|---|---:|
 | Compute | EC2 `t4g.small` (Graviton), containers for control plane + runtime + Redis | ~$12.26 |
-| EBS root volume | 20 GB gp3 | ~$1.60 |
+| EBS root volume | 30 GB gp3 | ~$2.40 |
 | Public IPv4 address | 1 in-use address @ $0.005/hr | ~$3.65 |
 | Database | RDS Postgres `db.t4g.micro`, single-AZ | ~$12.41 |
 | DB storage | 20 GB gp3 | ~$2.30 |
@@ -71,9 +75,9 @@ Hard ceiling: **$80/month.** Target baseline: **~$30–40/month.**
 | **NAT Gateway** | **Skipped entirely** | **$0** |
 | Observability | CloudWatch + CloudTrail, within always-free allowance | $0 |
 | S3 | Backups + static assets | ~$0.25 |
-| | **Baseline** | **~$33** |
+| | **Baseline** | **~$34** |
 
-Roughly 41% of the ceiling, leaving real headroom. The public IPv4 line is easy to overlook — AWS has charged $0.005/hour per public IPv4 address, in-use or idle, since February 2024. Full breakdown and sourcing: [`docs/cost-breakdown.md`](docs/cost-breakdown.md).
+Roughly 42% of the ceiling, leaving real headroom. The public IPv4 line is easy to overlook — AWS has charged $0.005/hour per public IPv4 address, in-use or idle, since February 2024. Full breakdown and sourcing: [`docs/cost-breakdown.md`](docs/cost-breakdown.md).
 
 Graviton (`t4g`) over x86 for the price/performance advantage at this size — see [ADR-0002](docs/ADR-0002-graviton-instances.md).
 
@@ -102,13 +106,30 @@ AWS also offers native Budget Actions (attach a deny-spend IAM policy, or stop i
 
 ---
 
+## What is and isn't in this repository
+
+This repository is public. It contains the full Terraform configuration, the production compose stack, and the operator runbooks — the *shape* of the infrastructure, deliberately inspectable.
+
+It contains **no** credentials, and never has:
+
+- **No Terraform state.** `*.tfstate` is gitignored and has never been committed — state can hold sensitive attribute values in plaintext.
+- **No variable files.** `*.tfvars` is gitignored; only `terraform.tfvars.example` with placeholders is tracked.
+- **No environment file.** `deploy/.env` is gitignored; only `deploy/.env.example` with empty placeholders is tracked.
+- **No account ID, ARN, access key, or secret value** anywhere in the tree or in git history.
+
+Secret *names* in Secrets Manager are documented (`ceiba/stripe-secret-key` and friends) because a name is not a credential and the runbooks are useless without them. The values are populated out of band with `aws secretsmanager put-secret-value` and never enter this repository.
+
+Running this yourself means supplying your own AWS account, your own `terraform.tfvars`, and your own secrets. Start at [`docs/operator-deployment-guide.md`](docs/operator-deployment-guide.md).
+
+---
+
 ## Security
 
 The most common cause of a catastrophic AWS bill isn't a design mistake — it's a leaked credential used for crypto-mining at scale. Every control below is doing double duty as billing insurance, not just security hygiene.
 
 - **Root account** — MFA enabled, never used for day-to-day work, no access keys ever generated for it.
-- **IAM** — a dedicated admin user/role for daily work with MFA required. EC2 and Lambda assume IAM roles; no long-lived access keys are embedded anywhere.
-- **Least privilege** — the auto-shutdown Lambda's policy grants exactly `ec2:StopInstances`, `ec2:DescribeInstances`, and its own log-group writes. Nothing more.
+- **IAM** — deploys run as a non-root principal from AWS IAM Identity Center, so credentials are short-lived rather than long-lived access keys sitting on a laptop. EC2 and Lambda assume IAM roles; no long-lived access keys are embedded anywhere.
+- **Least privilege on the runtime principals** — the auto-shutdown Lambda can stop exactly one instance, by ARN, and write its own logs. The EC2 instance role reads specific named secrets, one bucket prefix, and pulls (never pushes) from exactly two ECR repositories. These are the principals exposed to running code, which is where scoping actually earns its keep.
 - **Secrets** — DB credentials, Stripe keys, and Clerk secrets live in Secrets Manager / SSM Parameter Store. Never in git, never baked into an AMI or image.
 - **Network** — the EC2 security group allows 80/443 from anywhere; SSH only via SSM Session Manager, with no port 22 open to the internet. RDS accepts inbound traffic solely from the EC2 security group.
 - **Backups** — RDS automated backups on, plus periodic manual snapshots exported to versioned S3 as an off-instance copy. A local backup disk is not disaster recovery.
@@ -156,6 +177,7 @@ ceiba-infra/
 │   ├── terraform.tfvars.example
 │   └── lambda-auto-shutdown/    handler.py + iam-policy.json (reference copy of the live iam.tf policy)
 ├── docs/
+│   ├── operator-deployment-guide.md                 START HERE for a first real deploy — links everything below
 │   ├── ADR-0001-no-nat-gateway.md
 │   ├── ADR-0002-graviton-instances.md
 │   ├── ADR-0003-local-state.md
