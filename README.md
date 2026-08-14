@@ -18,7 +18,7 @@ Note that `terraform plan` cannot be rehearsed without real credentials: the AWS
 
 Terraform state is currently local. That's acceptable for a single-operator project and is stated here deliberately rather than left as a silent gap; remote state (S3 + DynamoDB locking) is the natural next step the moment a second operator or a CI apply enters the picture. See [ADR-0003](docs/ADR-0003-local-state.md).
 
-**Known gaps, flagged rather than silently worked around:** there is no CD — images are built and pushed by hand, because both app images depend on a private sibling repository that CI cannot yet check out; and `docs.useceiba.com` is not served by this stack at all (`ceiba-docs` has no container here and is hosted separately).
+See [Known limitations](#known-limitations) for what this stack does not yet do.
 
 ---
 
@@ -106,6 +106,16 @@ AWS also offers native Budget Actions (attach a deny-spend IAM policy, or stop i
 
 ---
 
+## Validation
+
+Evidence that this infrastructure was verified, not just built. Reports live in [`docs/validation/`](docs/validation/).
+
+**Pre-publication secret scan** — [`docs/validation/secret-scan-2026-08-14.md`](docs/validation/secret-scan-2026-08-14.md). gitleaks, trufflehog, and a manual grep over the full history of a **fresh clone of the remote** (not the local working copy — the distinction mattered). All three clean: 7 commits, 0 verified and 0 unverified secrets, 31 grep matches all reviewed and all benign. The scan surfaced that two real disclosures existed in local branch history and were only kept out of the published repository by this project's squash-merge convention — luck arising from a convention rather than foresight, and recorded as such.
+
+**Not yet validated, stated plainly:** the billing guardrail chain (CloudWatch alarm → SNS → Lambda auto-shutdown) has never been fired end to end. It is configured; it is unproven. See [Known limitations](#known-limitations).
+
+---
+
 ## What is and isn't in this repository
 
 This repository is public. It contains the full Terraform configuration, the production compose stack, and the operator runbooks — the *shape* of the infrastructure, deliberately inspectable.
@@ -134,6 +144,20 @@ The most common cause of a catastrophic AWS bill isn't a design mistake — it's
 - **Network** — the EC2 security group allows 80/443 from anywhere; SSH only via SSM Session Manager, with no port 22 open to the internet. RDS accepts inbound traffic solely from the EC2 security group.
 - **Backups** — RDS automated backups on, plus periodic manual snapshots exported to versioned S3 as an off-instance copy. A local backup disk is not disaster recovery.
 - **Audit** — CloudTrail enabled for management events (within the always-free allowance), useful for both security investigation and cost forensics when an unexpected resource appears.
+
+---
+
+## Known limitations
+
+Stated because they are true, not because they are comfortable. Every one of these is a real gap in an otherwise-live system.
+
+- **The billing guardrail has never been fired.** The CloudWatch alarm → SNS → Lambda auto-shutdown chain is configured and applied, but no one has ever driven it to `ALARM` and watched the instance stop. Until that drill runs, the guardrail is a design, not a control. Testing it costs a few minutes of downtime, which is why it should happen now rather than after the first customer.
+- **No continuous deployment.** Images are built on a workstation and pushed to ECR by hand. Both app images depend on a private sibling repository (`ceiba-core-domain`) that GitHub Actions cannot check out with the default token, so the build cannot move to CI until that is resolved — a credential decision, not an engineering one.
+- **No automated rollback.** A bad image reaching the host is recovered by pulling the previous immutable tag and restarting the stack. That works because tags are immutable, but it is manual and undrilled.
+- **Terraform state is local.** Single operator, single machine, no locking, no remote backup. See [ADR-0003](docs/ADR-0003-local-state.md), which states the exact conditions that should trigger a move to S3 + DynamoDB.
+- **Single AZ, single instance.** An AZ failure or an instance failure is downtime, not a failover. This is a deliberate cost decision at pre-revenue scale, not an oversight.
+- **`docs.useceiba.com` is not served by this stack.** `ceiba-docs` has no container here and is hosted separately.
+- **No pre-commit secret scanning.** The full-history scan above is a point-in-time result. Nothing currently stops a future commit from introducing a secret.
 
 ---
 
@@ -170,12 +194,16 @@ ceiba-infra/
 │   ├── aws-deployment-architecture.svg   source (from the strategy doc's Mermaid diagram)
 │   └── aws-deployment-architecture.png   rendered, referenced above
 ├── terraform/
-│   ├── providers.tf  variables.tf  outputs.tf      scaffolding the README's original list didn't enumerate
-│   ├── vpc.tf  ec2.tf  rds.tf  iam.tf
+│   ├── providers.tf  variables.tf  outputs.tf
+│   ├── vpc.tf  ec2.tf  rds.tf  iam.tf  ecr.tf
 │   ├── budgets.tf  cloudwatch-billing-alarm.tf
-│   ├── s3-and-audit.tf                             S3 backups bucket + CloudTrail (already-committed architecture, not a new file the README named)
-│   ├── terraform.tfvars.example
+│   ├── s3-and-audit.tf                             S3 backups bucket + CloudTrail
+│   ├── terraform.tfvars.example                    placeholders only; terraform.tfvars is gitignored
 │   └── lambda-auto-shutdown/    handler.py + iam-policy.json (reference copy of the live iam.tf policy)
+├── deploy/                                          what runs on the EC2 host
+│   ├── docker-compose.yml                          control plane + runtime + Redis + Caddy
+│   ├── Caddyfile                                   automatic HTTPS; hostnames from env placeholders
+│   └── .env.example                                placeholders only; deploy/.env is gitignored
 ├── docs/
 │   ├── operator-deployment-guide.md                 START HERE for a first real deploy — links everything below
 │   ├── ADR-0001-no-nat-gateway.md
@@ -183,7 +211,9 @@ ceiba-infra/
 │   ├── ADR-0003-local-state.md
 │   ├── billing-guardrail-runbook.md
 │   ├── cost-breakdown.md
-│   └── rollout-runbook.md                          full automated-vs-manual step list; this section is the short version
+│   ├── rollout-runbook.md                          full automated-vs-manual step list; this section is the short version
+│   └── validation/                                 evidence that things were verified, not just built
+│       └── secret-scan-2026-08-14.md
 └── .github/workflows/
     └── terraform-plan.yml       runs `terraform plan` on PR (needs an OIDC role ARN wired in first — see the workflow file)
 ```
