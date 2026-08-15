@@ -157,3 +157,15 @@ variable "ec2_target_name" {
   type        = string
   default     = "ceiba-app"
 }
+
+variable "cd_deploy_branch" {
+  description = <<-EOT
+    The one branch, per app repo, that github-oidc.tf's deploy role trusts.
+    A push to any other branch cannot assume this role, even from inside the
+    same repository — this is the whole point of pinning the OIDC trust
+    policy to a ref instead of repo:OWNER/REPO:*. Change this value, not the
+    trust policy, if the branch that triggers CD ever changes.
+  EOT
+  type        = string
+  default     = "dev"
+}

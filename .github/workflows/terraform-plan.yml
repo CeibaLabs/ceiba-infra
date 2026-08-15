@@ -4,12 +4,14 @@ name: terraform-plan
 # intent and this repo's standing review-gate discipline (no automated actor
 # is authorized to change real infrastructure; a human always applies).
 #
-# PREREQUISITE THIS WORKFLOW CANNOT SET UP ITSELF: an IAM role trusted for
-# GitHub Actions OIDC (read-only permissions sufficient for `plan`) must
-# exist in the AWS account, and its ARN must be set as the repository
-# variable AWS_PLAN_ROLE_ARN, before this workflow can authenticate. Until
-# that's done, this workflow will fail at the "Configure AWS credentials"
-# step — that failure is expected and correct (fail closed, not open) rather
+# PREREQUISITE THIS WORKFLOW CANNOT SET UP ITSELF: terraform/github-oidc.tf
+# provisions the role this workflow needs (ceiba-github-plan, read-only, OIDC
+# trust pinned to this exact workflow's pull_request trigger), but Terraform
+# cannot apply itself — a human runs `terraform apply`, then copies the
+# `github_plan_role_arn` output into this repository's own Settings >
+# Secrets and variables > Actions > Variables as AWS_PLAN_ROLE_ARN. Until
+# both of those happen, this workflow fails at the "Configure AWS
+# credentials" step — expected and correct (fail closed, not open) rather
 # than falling back to long-lived access-key secrets.
 
 on:

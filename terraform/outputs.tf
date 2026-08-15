@@ -42,3 +42,13 @@ output "ecr_control_plane_repository_url" {
   description = "ECR repository URL for ceiba-control-plane - copy into deploy/.env as CONTROL_PLANE_IMAGE's registry prefix."
   value       = aws_ecr_repository.control_plane.repository_url
 }
+
+output "github_plan_role_arn" {
+  description = "Set as ceiba-infra's own repository variable AWS_PLAN_ROLE_ARN (Settings > Secrets and variables > Actions > Variables) - this is what terraform-plan.yml has assumed exists since it was written."
+  value       = aws_iam_role.github_plan.arn
+}
+
+output "github_deploy_role_arn" {
+  description = "Set as a repository variable AWS_DEPLOY_ROLE_ARN in BOTH ceiba-runtime and ceiba-control-plane - the CD workflow in each assumes this role via OIDC to push to ECR and run the deploy script over SSM."
+  value       = aws_iam_role.github_deploy.arn
+}
