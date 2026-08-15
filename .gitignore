@@ -27,3 +27,12 @@ credentials
 
 # OS
 .DS_Store
+
+# Operator documentation — deliberately private, maintained in the private
+# _workspace repo under _workspace/infra/. These describe the live deployment
+# procedure, the billing-guardrail response, and internal validation results.
+# Ignored here so they cannot be re-added to a public repository by accident.
+docs/rollout-runbook.md
+docs/operator-deployment-guide.md
+docs/billing-guardrail-runbook.md
+docs/validation/

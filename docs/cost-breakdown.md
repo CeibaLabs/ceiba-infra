@@ -4,6 +4,7 @@ Hard ceiling: **$80/month** (`_workspace/context/ceiba_aws_deployment_strategy.m
 
 Pricing below was independently re-verified on **2026-07-13** against current public AWS pricing sources, per this pass's mandate to confirm figures rather than inherit the strategy doc's 2026-07-02 estimates unchecked. **Result: no material drift.** us-east-1 on-demand pricing for every Phase 1 line item matches the original strategy doc and README figures within a few percent — the $33/month baseline holds under current pricing.
 
+
 ## Phase 1 — MVP launch
 
 | Component | Choice | Est. monthly | 2026-07-13 verification |
@@ -42,4 +43,4 @@ EC2, RDS, and public-IPv4 figures were checked directly against current AWS pric
 
 ## What would actually threaten the $80 ceiling
 
-None of the Phase 1 components individually risk the ceiling even at 2-3x the estimated figures above. The realistic ways to blow the budget are operational, not pricing-estimate error: an oversized instance left running after a debugging session, an orphaned EBS volume or unattached Elastic IP, or a runaway Lambda/CloudWatch cost from a misconfigured alarm loop. See `docs/billing-guardrail-runbook.md` and the README's cost-hygiene checklist for the controls that catch exactly this class of risk.
+None of the Phase 1 components individually risk the ceiling even at 2-3x the estimated figures above. The realistic ways to blow the budget are operational, not pricing-estimate error: an oversized instance left running after a debugging session, an orphaned EBS volume or unattached Elastic IP, or a runaway Lambda/CloudWatch cost from a misconfigured alarm loop. See the README's cost-guardrail and cost-hygiene sections for the controls that catch exactly this class of risk; the operator response procedure itself is maintained privately.

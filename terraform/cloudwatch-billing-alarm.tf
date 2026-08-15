@@ -17,7 +17,7 @@
 # Manual prerequisite this Terraform cannot do for you: "Receive Billing
 # Alerts" must be enabled once in Billing preferences (console-only toggle,
 # no Terraform resource exists for it) before this alarm can evaluate any
-# data. See docs/billing-guardrail-runbook.md.
+# data. Operator response procedure is in the private billing-guardrail runbook.
 
 resource "aws_sns_topic" "billing_alert" {
   provider = aws.billing
@@ -82,7 +82,7 @@ resource "aws_cloudwatch_metric_alarm" "billing" {
   provider = aws.billing
 
   alarm_name          = "ceiba-billing-estimated-charges"
-  alarm_description   = "Fires when AWS estimated charges exceed the pre-ceiling threshold. See docs/billing-guardrail-runbook.md."
+  alarm_description   = "Fires when AWS estimated charges exceed the pre-ceiling threshold. See the billing-guardrail runbook."
   namespace           = "AWS/Billing"
   metric_name         = "EstimatedCharges"
   dimensions          = { Currency = "USD" }

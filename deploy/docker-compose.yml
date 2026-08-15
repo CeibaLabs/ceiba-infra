@@ -1,4 +1,4 @@
-# Production compose stack for the Ceiba app host (rollout-runbook.md step 11).
+# Production compose stack for the Ceiba app host.
 #
 # Images come from env vars, never hardcoded, so this same file works both
 # against ECR in production and against locally-built images during

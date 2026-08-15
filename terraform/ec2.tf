@@ -7,8 +7,8 @@
 # gap this comment used to flag is closed. This resource still provisions
 # only the host and the container runtime: it deliberately does NOT pull or
 # start application images, because that requires a registry and a
-# production compose stack that do not exist yet (rollout-runbook.md
-# steps 10-11). Bringing those up stays an explicit operator step.
+# production compose stack. Bringing those up stays an explicit operator
+# step, documented in the private operator runbooks.
 
 data "aws_ami" "al2023_arm64" {
   most_recent = true

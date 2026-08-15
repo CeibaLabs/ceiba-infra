@@ -3,8 +3,8 @@
 Invoked via SNS when the CloudWatch AWS/Billing EstimatedCharges alarm fires
 (cloudwatch-billing-alarm.tf). Stops the Ceiba app EC2 instance to arrest a
 slow cost leak. Deliberately does NOT touch RDS — stopping RDS only pauses
-billing for up to 7 days before AWS silently restarts it (see
-docs/billing-guardrail-runbook.md).
+billing for up to 7 days before AWS silently restarts it (see the
+billing-guardrail runbook, maintained privately).
 
 Resolves the target instance by its Name tag (TARGET_INSTANCE_NAME) rather
 than a hardcoded instance ID, since the ID isn't known until after the first

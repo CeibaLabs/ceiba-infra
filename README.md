@@ -8,9 +8,9 @@ Infrastructure and deployment for [Ceiba App](https://app.useceiba.com), [Ceiba 
 
 ## Status
 
-> **Current phase:** applied and live. The Phase 1 stack is deployed in `ca-central-1` and serving production traffic over HTTPS — `app.useceiba.com` and `api.useceiba.com` both respond. See [Rollout](#rollout) for the ordered plan and `docs/rollout-runbook.md` for the detailed automated-vs-manual checklist.
+> **Current phase:** applied and live. The Phase 1 stack is deployed in `ca-central-1` and serving production traffic over HTTPS — `app.useceiba.com` and `api.useceiba.com` both respond. See [Rollout](#rollout) for the ordered plan.
 
-**Deploying for the first time? Start at [`docs/operator-deployment-guide.md`](docs/operator-deployment-guide.md).** It's the front door — identity setup (non-root, AWS IAM Identity Center), `terraform apply`, images to ECR, bringing the stack up, DNS/TLS, and the landing-site promotion gate, in order.
+**Deploying this yourself?** [Running it](#running-it) covers the shape of it. The step-by-step operator guide — identity setup, the ordered apply, images to ECR, DNS/TLS, and the promotion gate — is maintained privately alongside the runbooks; see [Operational documentation](#operational-documentation).
 
 Every resource here was created by `terraform apply`, reviewed and run by a human. **No automated actor applies infrastructure**, and nothing was provisioned through the console or CLI outside Terraform — there is no informally-provisioned resource this repo's Terraform needs to "catch up" to. The CI workflow runs `terraform plan` on pull requests only; it never applies.
 
@@ -95,7 +95,7 @@ Two layers, because a budget alert that only emails you is not a control.
 
 **1. AWS Budgets.** One monthly cost budget at $80, alerting at 50%, 80%, and 100% actual, plus a forecasted-to-exceed alert that catches a trend before it becomes a bill. Notifications go to both an SNS topic and a direct email subscription, so a human sees it immediately rather than only the automation.
 
-**2. Auto-shutdown circuit breaker.** A CloudWatch alarm on the `AWS/Billing` `EstimatedCharges` metric, threshold set below the ceiling (e.g. $70, leaving room to react), publishes to an SNS topic. That topic has two subscribers: an email address, and a Lambda that stops non-critical compute. Runbook: [`docs/billing-guardrail-runbook.md`](docs/billing-guardrail-runbook.md).
+**2. Auto-shutdown circuit breaker.** A CloudWatch alarm on the `AWS/Billing` `EstimatedCharges` metric, threshold set below the ceiling (e.g. $70, leaving room to react), publishes to an SNS topic. That topic has two subscribers: an email address, and a Lambda that stops non-critical compute. The operator response procedure is maintained privately; see [Operational documentation](#operational-documentation).
 
 Two things this guardrail is **not**, stated plainly so it doesn't get over-trusted:
 
@@ -108,9 +108,9 @@ AWS also offers native Budget Actions (attach a deny-spend IAM policy, or stop i
 
 ## Validation
 
-Evidence that this infrastructure was verified, not just built. Reports live in [`docs/validation/`](docs/validation/).
+Evidence that this infrastructure was verified, not just built. The full reports are maintained privately (see [Operational documentation](#operational-documentation)); results are summarised here.
 
-**Pre-publication secret scan** — [`docs/validation/secret-scan-2026-08-14.md`](docs/validation/secret-scan-2026-08-14.md). gitleaks, trufflehog, and a manual grep over the full history of a **fresh clone of the remote** (not the local working copy — the distinction mattered). All three clean: 7 commits, 0 verified and 0 unverified secrets, 31 grep matches all reviewed and all benign. The scan surfaced that two real disclosures existed in local branch history and were only kept out of the published repository by this project's squash-merge convention — luck arising from a convention rather than foresight, and recorded as such.
+**Pre-publication secret scan (2026-08-14, at commit `1bf2805`).** gitleaks, trufflehog, and a manual grep over the full history of a **fresh clone of the remote** — not the local working copy, and the distinction mattered: unreachable objects locally would have produced a false positive for content no reader can obtain. All three clean: 7 commits scanned, **0 verified and 0 unverified secrets**, 31 grep matches all reviewed and all benign (secret *names* and empty placeholders, no values). Separately confirmed no `*.tfstate`, `*.tfvars`, or `.env` was ever committed, and that no AWS account ID appears anywhere — ten 12-digit strings were individually traced to floating-point path coordinates in the architecture SVG.
 
 **Not yet validated, stated plainly:** the billing guardrail chain (CloudWatch alarm → SNS → Lambda auto-shutdown) has never been fired end to end. It is configured; it is unproven. See [Known limitations](#known-limitations).
 
@@ -129,7 +129,7 @@ It contains **no** credentials, and never has:
 
 Secret *names* in Secrets Manager are documented (`ceiba/stripe-secret-key` and friends) because a name is not a credential and the runbooks are useless without them. The values are populated out of band with `aws secretsmanager put-secret-value` and never enter this repository.
 
-Running this yourself means supplying your own AWS account, your own `terraform.tfvars`, and your own secrets. Start at [`docs/operator-deployment-guide.md`](docs/operator-deployment-guide.md).
+Running this yourself means supplying your own AWS account, your own `terraform.tfvars`, and your own secrets.
 
 ---
 
@@ -147,11 +147,19 @@ The most common cause of a catastrophic AWS bill isn't a design mistake — it's
 
 ---
 
+## Operational documentation
+
+The deployment guide, the rollout runbook, the billing-guardrail response procedure, and the validation reports are **deliberately not published**. They describe how this specific production environment is operated — the ordered apply, the response to a firing alarm, the recovery path after an instance stop — and that is operating detail for one live account rather than reusable infrastructure.
+
+What is published is everything needed to understand and reproduce the architecture: all the Terraform, the ADRs behind the decisions, the cost model, and the compose stack that runs on the host. Their results and conclusions are summarised in this README where they matter.
+
+---
+
 ## Known limitations
 
 Stated because they are true, not because they are comfortable. Every one of these is a real gap in an otherwise-live system.
 
-- **The billing guardrail has never been fired.** The CloudWatch alarm → SNS → Lambda auto-shutdown chain is configured and applied, but no one has ever driven it to `ALARM` and watched the instance stop. Until that drill runs, the guardrail is a design, not a control. Testing it costs a few minutes of downtime, which is why it should happen now rather than after the first customer.
+- **The billing guardrail has never been fired.** The CloudWatch alarm → SNS → Lambda auto-shutdown chain is configured and applied, but no one has ever driven it to `ALARM` and watched the instance stop. One link is both untested and recently changed: the Lambda's `ec2:StopInstances` permission was narrowed from `"*"` to a single instance ARN, and if that scoping is wrong the guardrail fails silently at the moment it is needed. Until the drill runs, this is a design, not a control.
 - **No continuous deployment.** Images are built on a workstation and pushed to ECR by hand. Both app images depend on a private sibling repository (`ceiba-core-domain`) that GitHub Actions cannot check out with the default token, so the build cannot move to CI until that is resolved — a credential decision, not an engineering one.
 - **No automated rollback.** A bad image reaching the host is recovered by pulling the previous immutable tag and restarting the stack. That works because tags are immutable, but it is manual and undrilled.
 - **Terraform state is local.** Single operator, single machine, no locking, no remote backup. See [ADR-0003](docs/ADR-0003-local-state.md), which states the exact conditions that should trigger a move to S3 + DynamoDB.
@@ -205,15 +213,12 @@ ceiba-infra/
 │   ├── Caddyfile                                   automatic HTTPS; hostnames from env placeholders
 │   └── .env.example                                placeholders only; deploy/.env is gitignored
 ├── docs/
-│   ├── operator-deployment-guide.md                 START HERE for a first real deploy — links everything below
 │   ├── ADR-0001-no-nat-gateway.md
 │   ├── ADR-0002-graviton-instances.md
 │   ├── ADR-0003-local-state.md
-│   ├── billing-guardrail-runbook.md
-│   ├── cost-breakdown.md
-│   ├── rollout-runbook.md                          full automated-vs-manual step list; this section is the short version
-│   └── validation/                                 evidence that things were verified, not just built
-│       └── secret-scan-2026-08-14.md
+│   └── cost-breakdown.md
+│                                                    operator runbooks, the deployment guide, and validation
+│                                                    reports are maintained privately — see below
 └── .github/workflows/
     └── terraform-plan.yml       runs `terraform plan` on PR (needs an OIDC role ARN wired in first — see the workflow file)
 ```
@@ -228,7 +233,7 @@ terraform plan     # always read the plan; never apply blind
 terraform apply
 ```
 
-`.tfstate` and `*.tfvars` are gitignored. Nothing in this repo should ever contain a real secret — see `docs/rollout-runbook.md` for how real secrets get into Secrets Manager instead.
+`.tfstate` and `*.tfvars` are gitignored. Nothing in this repo should ever contain a real secret — real values are written straight into Secrets Manager with `aws secretsmanager put-secret-value` and never pass through Terraform.
 
 ---
 
