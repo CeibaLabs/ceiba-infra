@@ -151,26 +151,37 @@ resource "aws_iam_role_policy" "github_deploy_ecr" {
 #
 # ssm:SendCommand requires the caller to have access to BOTH the target and
 # the document — a single statement listing both ARNs, not two separate
-# statements — confirmed against AWS's Systems Manager IAM documentation
-# (docs.aws.amazon.com/systems-manager/latest/userguide/
-# auth-and-access-control-iam-access-control-identity-based.html, fetched
-# 2026-08-15). The target for a real EC2 instance (not a hybrid/on-prem
-# node) is expressed as an ssm: managed-instance ARN using the EC2 instance
-# ID, NOT an ec2: instance ARN — SSM's own resource-type table lists only
-# "Managed node | arn:aws:ssm:{region}:{account-id}:managed-instance/{id}",
-# with no ec2:instance resource type for this service. Getting this backwards
-# is exactly the class of mistake that shipped once already in this repo
-# (the original, factually wrong ec2:StopInstances comment) — verified
-# against the current docs rather than assumed from memory.
+# statements.
+#
+# The target ARN for a real EC2 instance (as opposed to a hybrid/on-prem
+# node registered via an SSM activation, which gets an mi-* ID) is the EC2
+# instance ARN, aws_instance.app.arn — NOT an ssm:managed-instance ARN.
+# This was gotten backwards in the first version of this policy, which used
+# ssm:managed-instance/${aws_instance.app.id} on the strength of SSM's own
+# general resource-type table (which does list a "Managed node" type in
+# that shape, but doesn't say SendCommand accepts it for an EC2-launched
+# target specifically). That version applied cleanly and looked correct in
+# `terraform plan`, then failed the first real deploy with a live
+# AccessDeniedException from AWS itself:
+#   "not authorized to perform: ssm:SendCommand on resource:
+#    arn:aws:ec2:ca-central-1:<account>:instance/i-01e2002f39420e241"
+# AWS's own runtime authorization check is the most authoritative source
+# available for what ARN it actually evaluates — more so than a docs table
+# — so this fix is anchored to that error message, not to documentation.
+# This is the second time a confidently-worded IAM comment in this repo
+# turned out to be wrong (the first was the original ec2:StopInstances
+# "*"); both were caught by empirical verification, not by re-reading docs
+# more carefully — worth remembering for the next IAM statement written here.
 #
 # AWS-RunShellScript is an AWS-owned public document; its ARN carries no
-# account ID, per the same documentation.
+# account ID, confirmed against AWS's own example ARNs for Amazon-owned
+# documents (e.g. AWS-RunPatchBaseline) in the Systems Manager IAM guide.
 data "aws_iam_policy_document" "github_deploy_ssm" {
   statement {
     sid     = "SsmSendCommandToAppHost"
     actions = ["ssm:SendCommand"]
     resources = [
-      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:managed-instance/${aws_instance.app.id}",
+      aws_instance.app.arn,
       "arn:aws:ssm:${var.aws_region}::document/AWS-RunShellScript",
     ]
   }
