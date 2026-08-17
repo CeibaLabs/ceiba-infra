@@ -8,5 +8,17 @@ availability_zone   = "ca-central-1a"
 availability_zone_b = "ca-central-1b" # must differ from availability_zone - required by RDS's DB subnet group, not a Multi-AZ signal
 budget_alert_email  = "you@example.com"
 
+# Required, no default (see variable's own description for why it's pinned
+# rather than resolved automatically). This is the actual AMI the live app
+# host runs today (confirmed 2026-08-17 via `aws ec2 describe-instances`
+# against the real running instance) — not a placeholder. AMI IDs from
+# Amazon-owned public AMIs are region-wide catalog references, not
+# account-scoped, so this value is the same for anyone in ca-central-1; it
+# is not sensitive. To find the current AMI for a fresh setup instead:
+#   aws ec2 describe-images --owners amazon \
+#     --filters "Name=name,Values=al2023-ami-*-arm64" "Name=architecture,Values=arm64" \
+#     --query 'sort_by(Images,&CreationDate)[-1].ImageId' --output text --region <region>
+ec2_ami_id = "ami-0f97d2a7376b155c7"
+
 # Everything else has a sensible Phase-1 default in variables.tf — override
 # here only if you have a specific reason to.

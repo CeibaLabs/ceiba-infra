@@ -10,6 +10,16 @@
 # production compose stack. Bringing those up stays an explicit operator
 # step, documented in the private operator runbooks.
 
+# Informational only — deliberately NOT wired into aws_instance.app below.
+# See var.ec2_ami_id's own description for why: wiring most_recent = true
+# directly into a live instance's `ami` argument means every future
+# `terraform apply`, for any reason, re-resolves this to whatever AMI AWS
+# has most recently published and force-replaces the running production
+# host if it has changed — confirmed 2026-08-17, when an apply intended
+# only to fix an unrelated IAM policy also silently destroyed and recreated
+# aws_instance.app, causing real downtime. This data source stays only so
+# `terraform plan` can show what a *deliberate* AMI bump would move to, via
+# the latest_available_ec2_ami_id output.
 data "aws_ami" "al2023_arm64" {
   most_recent = true
   owners      = ["amazon"]
@@ -31,7 +41,7 @@ data "aws_ami" "al2023_arm64" {
 }
 
 resource "aws_instance" "app" {
-  ami                    = data.aws_ami.al2023_arm64.id
+  ami                    = var.ec2_ami_id
   instance_type          = var.ec2_instance_type
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.ec2.id]

@@ -52,3 +52,8 @@ output "github_deploy_role_arn" {
   description = "Set as a repository variable AWS_DEPLOY_ROLE_ARN in BOTH ceiba-runtime and ceiba-control-plane - the CD workflow in each assumes this role via OIDC to push to ECR and run the deploy script over SSM."
   value       = aws_iam_role.github_deploy.arn
 }
+
+output "latest_available_ec2_ami_id" {
+  description = "Informational only - the AMI a most_recent = true lookup resolves to right now. Does NOT feed aws_instance.app (see var.ec2_ami_id). Compare this against var.ec2_ami_id's current value to see whether a deliberate bump is available; it does not mean one is due."
+  value       = data.aws_ami.al2023_arm64.id
+}

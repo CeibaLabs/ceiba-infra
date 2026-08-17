@@ -80,6 +80,41 @@ variable "ec2_instance_type" {
   default     = "t4g.small"
 }
 
+variable "ec2_ami_id" {
+  description = <<-EOT
+    Pinned AMI ID for the app host (Amazon Linux 2023, arm64). No default,
+    deliberately — a required value forces a conscious choice instead of
+    silently floating.
+
+    Why this is pinned rather than resolved live: wiring a `most_recent =
+    true` data source directly into aws_instance.app's `ami` argument means
+    every future `terraform apply` — for ANY reason, even one completely
+    unrelated to this instance — re-resolves to whatever AMI AWS most
+    recently published. `ami` is a ForceNew attribute, so any drift there
+    destroys and recreates the instance. This happened for real on
+    2026-08-17: an apply meant only to fix an unrelated IAM policy also
+    silently replaced the running production host, causing genuine
+    downtime. Pinning removes the "any apply might replace prod" risk
+    entirely — this value only ever changes when someone deliberately edits
+    it.
+
+    To find the AMI a specific running instance actually uses (the value to
+    copy in here on a fresh setup, so this variable starts out matching
+    reality exactly):
+      aws ec2 describe-instances --instance-ids <instance-id> \
+        --query 'Reservations[0].Instances[0].ImageId' --output text \
+        --region <region>
+
+    To see whether a newer AMI is available, without changing anything:
+      terraform output latest_available_ec2_ami_id
+
+    To deliberately bump the AMI: set this variable to that value, run
+    `terraform plan`, confirm it proposes exactly one replacement
+    (aws_instance.app) with nothing else touched, review, then apply.
+  EOT
+  type        = string
+}
+
 variable "ec2_root_volume_size_gb" {
   description = <<-EOT
     Root EBS volume size in GB (gp3). 30 is not an arbitrary round number -
