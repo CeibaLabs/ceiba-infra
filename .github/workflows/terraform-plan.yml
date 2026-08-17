@@ -45,7 +45,13 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
-          aws-region: us-east-1
+          # This only sets the STS session's ambient region — terraform's own
+          # provider blocks in providers.tf pin their real regions explicitly
+          # (var.aws_region for the primary provider, a hardcoded us-east-1
+          # for the billing-metrics alias only), so plan/apply is unaffected
+          # either way. Matched to the real deploy region for a reader's
+          # sake, not because the mismatch was functionally broken.
+          aws-region: ca-central-1
 
       - name: Terraform init
         run: terraform init
