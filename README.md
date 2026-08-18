@@ -238,6 +238,17 @@ terraform apply
 
 ---
 
+## Ceiba ecosystem
+
+- **Site** — <https://useceiba.com>
+- **Docs** — <https://docs.useceiba.com>
+- **Control Plane** — <https://app.useceiba.com>
+- **Node SDK** — [ceiba-sdk-node](https://github.com/CeibaLabs/ceiba-sdk-node) ([`@ceibalabs/ceiba-sdk`](https://www.npmjs.com/package/@ceibalabs/ceiba-sdk))
+- **Examples** — [ceiba-examples](https://github.com/CeibaLabs/ceiba-examples)
+- **Infrastructure** — this repository
+
+---
+
 ## Related
 
 - **Homelab platform** — the single-node, four-failure-domain environment that serves as Ceiba's dev/staging tier. It doesn't disappear when production moves to AWS; it stops being the production target.
