@@ -54,6 +54,12 @@ The second private subnet holds nothing and costs nothing — AWS requires a DB 
 
 RDS never initiates outbound internet traffic — it only accepts inbound connections from the EC2 security group, so there will be no need for a NAT Gateway (required only when something in a private subnet needs to reach *out*, and nothing here does). Skipping it removes the single largest fixed hidden cost in this small AWS deployment: roughly $33/month just for the gateway to exist, before a single byte flows through it. 
 
+The diagram above and the ASCII sketch cover steady-state AWS resources; they deliberately don't show ECR, the OIDC roles, or how a commit actually becomes a running deploy — that's a separate diagram, since cramming both into one picture makes neither readable:
+
+![Ceiba CD pipeline](diagrams/cd-pipeline.png)
+
+Both diagrams are generated, not hand-drawn — see `_workspace/diagram-gen/` (the generator script lives in the private `_workspace` repo since it's a project-coordination tool, not application infrastructure; the rendered `.png`/`.svg` output here is what's committed and reviewed).
+
 ---
 
 ## Cost
@@ -139,7 +145,7 @@ The most common cause of a catastrophic AWS bill isn't a design mistake — it's
 
 - **Root account** — MFA enabled, never used for day-to-day work, no access keys ever generated for it.
 - **IAM (human)** — deploys run as a non-root principal from AWS IAM Identity Center, so credentials are short-lived rather than long-lived access keys sitting on a laptop. EC2 and Lambda assume IAM roles; no long-lived access keys are embedded anywhere.
-- **IAM (CI/CD)** — GitHub Actions authenticates via OIDC federation, not a stored AWS key. Two roles: a read-only role trusted only for `terraform-plan.yml`'s own pull-request runs, and a deploy role trusted only for a pinned branch ref in the two app repos — not `repo:OWNER/REPO:*`, which would let any branch in either repo assume a role that can push images and run shell commands on the production host.
+- **IAM (CI/CD)** — GitHub Actions authenticates via OIDC federation, not a stored AWS key. Two roles: a read-only role trusted only for `terraform-plan.yml`'s own pull-request runs, and a deploy role trusted only for a pinned branch ref in the two app repos — not `repo:OWNER/REPO:*`, which would let any branch in either repo assume a role that can push images and run shell commands on the production host. See [ADR-0005](docs/ADR-0005-oidc-branch-pinned-deploy-trust.md).
 - **Least privilege on the runtime principals** — the auto-shutdown Lambda can stop exactly one instance, by ARN, and write its own logs. The EC2 instance role reads specific named secrets, one bucket prefix, and pulls (never pushes) from exactly two ECR repositories. The CD deploy role can push to those same two repositories and run commands on exactly one instance via SSM — nothing in RDS, Secrets Manager, or IAM itself. These are the principals exposed to running code, which is where scoping actually earns its keep.
 - **Secrets** — DB credentials, Stripe keys, and Clerk secrets live in Secrets Manager / SSM Parameter Store. Never in git, never baked into an AMI or image.
 - **Network** — the EC2 security group allows 80/443 from anywhere; SSH only via SSM Session Manager, with no port 22 open to the internet. RDS accepts inbound traffic solely from the EC2 security group.
@@ -161,12 +167,12 @@ What is published is everything needed to understand and reproduce the architect
 Stated because they are true, not because they are comfortable. Every one of these is a real gap in an otherwise-live system.
 
 - **The billing guardrail has never been fired.** The CloudWatch alarm → SNS → Lambda auto-shutdown chain is configured and applied, but no one has ever driven it to `ALARM` and watched the instance stop. One link is both untested and recently changed: the Lambda's `ec2:StopInstances` permission was narrowed from `"*"` to a single instance ARN, and if that scoping is wrong the guardrail fails silently at the moment it is needed. Until the drill runs, this is a design, not a control.
-- **No continuous deployment.** Images are built on a workstation and pushed to ECR by hand. Both app images depend on a private sibling repository (`ceiba-core-domain`) that GitHub Actions cannot check out with the default token, so the build cannot move to CI until that is resolved — a credential decision, not an engineering one.
-- **No automated rollback.** A bad image reaching the host is recovered by pulling the previous immutable tag and restarting the stack. That works because tags are immutable, but it is manual and undrilled.
 - **Terraform state is local.** Single operator, single machine, no locking, no remote backup. See [ADR-0003](docs/ADR-0003-local-state.md), which states the exact conditions that should trigger a move to S3 + DynamoDB.
-- **Single AZ, single instance.** An AZ failure or an instance failure is downtime, not a failover. This is a deliberate cost decision at pre-revenue scale, not an oversight.
+- **Single AZ, single instance.** An AZ failure or an instance failure is downtime, not a failover. This is a deliberate cost decision at pre-revenue scale, not an oversight — see [ADR-0006](docs/ADR-0006-single-az-rds.md) for the priced alternative and the reversal criteria.
 - **`docs.useceiba.com` is not served by this stack.** `ceiba-docs` has no container here and is hosted separately.
-- **No pre-commit secret scanning.** The full-history scan above is a point-in-time result. Nothing currently stops a future commit from introducing a secret.
+- **No pre-commit secret scanning.** CI runs `gitleaks` on every push/PR across all three repos (this one included) and fails the build on a match, which blocks merge and — since CD only fires on CI success — deploy too. That's a stronger gate than a local pre-commit hook would be (uniform regardless of who or what authored the commit, can't be skipped with `--no-verify`), but it's still a point of catch, not prevention: a secret can still be typed into a commit, it just won't survive the next push.
+
+Two items that used to live here are resolved and worth naming explicitly rather than silently dropping: **CD is live** on both app repos (native `ubuntu-24.04-arm` build, digest-verified deploy, automatic rollback on a failed health/readiness check — not manual, not undrilled; images are built off-host and pushed to ECR, [ADR-0004](docs/ADR-0004-ecr-over-host-build.md)), and the earlier credential blocker that once gated it (`ceiba-core-domain`'s private-repo checkout) is closed via a GitHub App token minted per run. See [`diagrams/cd-pipeline.png`](diagrams/cd-pipeline.png) for the full push-to-verified-deploy path.
 
 ---
 
@@ -199,9 +205,9 @@ Stated because they are true, not because they are comfortable. Every one of the
 
 ```
 ceiba-infra/
-├── diagrams/
-│   ├── aws-deployment-architecture.svg   source (from the strategy doc's Mermaid diagram)
-│   └── aws-deployment-architecture.png   rendered, referenced above
+├── diagrams/                                        generated - see _workspace/diagram-gen, don't hand-edit
+│   ├── aws-deployment-architecture.{png,svg}       steady-state AWS resources, referenced above
+│   └── cd-pipeline.{png,svg}                       push-to-dev through a verified, rolled-back-on-failure deploy
 ├── terraform/
 │   ├── providers.tf  variables.tf  outputs.tf
 │   ├── vpc.tf  ec2.tf  rds.tf  iam.tf  ecr.tf
@@ -217,6 +223,10 @@ ceiba-infra/
 │   ├── ADR-0001-no-nat-gateway.md
 │   ├── ADR-0002-graviton-instances.md
 │   ├── ADR-0003-local-state.md
+│   ├── ADR-0004-ecr-over-host-build.md
+│   ├── ADR-0005-oidc-branch-pinned-deploy-trust.md
+│   ├── ADR-0006-single-az-rds.md
+│   ├── ADR-0007-pin-ec2-ami.md
 │   └── cost-breakdown.md
 │                                                    operator runbooks, the deployment guide, and validation
 │                                                    reports are maintained privately — see below

@@ -20,6 +20,10 @@ Compatibility check before committing to this: both `ceiba-runtime` and `ceiba-c
 - Once application containers exist (see this pass's flagged Dockerfile gap in the rollout runbook), their base images must be multi-arch or arm64-specific (e.g., `node:22-alpine` publishes arm64 variants natively — no action needed there, but this is worth confirming explicitly when those Dockerfiles are written, since it's an application-repo change outside this pass's mandate).
 - If a future dependency turns out to require x86 (an uncommon native addon with no arm64 build, for example), the fix is switching that specific instance type back to `t3`/`db.t3` — not abandoning Graviton wholesale.
 
+## Reversal criteria
+
+Switch a specific instance type back to its x86 (`t3`/`db.t3`) equivalent only if a real dependency is confirmed to have no arm64 build and no viable arm64 alternative exists — not preemptively, and not wholesale. The 10-20% price/performance gap is real and free money left on the table for as long as arm64 compatibility holds, so the burden of proof is on finding an actual incompatibility, not on re-justifying Graviton.
+
 ## Source
 
 `_workspace/context/ceiba_aws_deployment_strategy.md` §4 already chose Graviton; this ADR records the reasoning and adds the 2026-07-13 pricing/compatibility confirmation that backs it, per this pass's mandate to verify current pricing before finalizing.

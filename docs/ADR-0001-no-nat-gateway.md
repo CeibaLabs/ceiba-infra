@@ -22,6 +22,10 @@ A NAT Gateway has a real, unavoidable fixed cost — roughly $33/month just for 
 - RDS/ElastiCache patching and minor-version upgrades are handled by AWS's managed-service control plane, not by the instances reaching out to the internet themselves, so this doesn't block routine maintenance.
 - Database migrations and application traffic to RDS still work correctly because they originate *from* the EC2 host (which does have public subnet + internet gateway access) *to* RDS — that direction was never NAT's job.
 
+## Reversal criteria
+
+Add a NAT Gateway (or NAT instance, cheaper but self-managed) the moment any private-subnet resource genuinely needs to *initiate* outbound internet traffic — a scheduled job pulling from a third-party API, a package-update mechanism inside RDS/ElastiCache that AWS's own managed control plane doesn't already handle. Not before: the $33+/month cost only buys something the architecture doesn't need yet.
+
 ## Source
 
 `_workspace/context/ceiba_aws_deployment_strategy.md` §3, §4 — this ADR organizes reasoning already settled there; no new judgment call was required to write it.
