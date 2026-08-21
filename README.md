@@ -118,6 +118,10 @@ Evidence that this infrastructure was verified, not just built. The full reports
 
 **Pre-publication secret scan (2026-08-14, at commit `1bf2805`).** gitleaks, trufflehog, and a manual grep over the full history of a **fresh clone of the remote** — not the local working copy, and the distinction mattered: unreachable objects locally would have produced a false positive for content no reader can obtain. All three clean: 7 commits scanned, **0 verified and 0 unverified secrets**, 31 grep matches all reviewed and all benign (secret *names* and empty placeholders, no values). Separately confirmed no `*.tfstate`, `*.tfvars`, or `.env` was ever committed, and that no AWS account ID appears anywhere — ten 12-digit strings were individually traced to floating-point path coordinates in the architecture SVG.
 
+**CD's migration off QEMU (2026-08-20).** Full report maintained privately alongside the other validation results (see below) — real run IDs, not a synthetic test: three consecutive real deploy failures with an identical crash signature (falsifying an earlier "rare flakiness" assumption), the fix, and measured before/after timing (`ceiba-control-plane` ~21-22min → 2m46s, `ceiba-runtime` ~7.75min → 2m11s, zero crashes on either repo's first native run).
+
+**Publicly verifiable right now, not just described:** <https://api.useceiba.com/version> and <https://app.useceiba.com/api/version> report the exact commit currently deployed; <https://api.useceiba.com/ready> and <https://app.useceiba.com/api/ready> report real per-dependency health (database, and Redis for the Runtime), not process liveness — see D-059 in the private decisions log for the outage that motivated the distinction.
+
 **Not yet validated, stated plainly:** the billing guardrail chain (CloudWatch alarm → SNS → Lambda auto-shutdown) has never been fired end to end. It is configured; it is unproven. See [Known limitations](#known-limitations).
 
 ---
@@ -173,6 +177,17 @@ Stated because they are true, not because they are comfortable. Every one of the
 - **No pre-commit secret scanning.** CI runs `gitleaks` on every push/PR across all three repos (this one included) and fails the build on a match, which blocks merge and — since CD only fires on CI success — deploy too. That's a stronger gate than a local pre-commit hook would be (uniform regardless of who or what authored the commit, can't be skipped with `--no-verify`), but it's still a point of catch, not prevention: a secret can still be typed into a commit, it just won't survive the next push.
 
 Two items that used to live here are resolved and worth naming explicitly rather than silently dropping: **CD is live** on both app repos (native `ubuntu-24.04-arm` build, digest-verified deploy, automatic rollback on a failed health/readiness check — not manual, not undrilled; images are built off-host and pushed to ECR, [ADR-0004](docs/ADR-0004-ecr-over-host-build.md)), and the earlier credential blocker that once gated it (`ceiba-core-domain`'s private-repo checkout) is closed via a GitHub App token minted per run. See [`diagrams/cd-pipeline.png`](diagrams/cd-pipeline.png) for the full push-to-verified-deploy path.
+
+---
+
+## What I'd do differently at scale
+
+This stack is sized for one operator and pre-revenue traffic. Some of that is a genuine trade-off I'd revisit on purpose, not a shortcut I'd be embarrassed by:
+
+- **I'd stop pinning a single AMI ID by hand.** [ADR-0007](docs/ADR-0007-pin-ec2-ami.md) fixes a real incident (an unrelated apply silently replacing the running production host), but it's a single-instance answer — the moment there's a second instance or an ASG, a launch template with a controlled rollout replaces this, because hand-pinning one ID per instance doesn't scale to a fleet.
+- **I'd stop treating CD reliability as "retry until it works."** The QEMU crash (`docs/validation/cd-arm64-migration-2026-08-20.md`) was fixed twice: first with a retry loop, which was the wrong fix for a deterministic failure and only proved that after burning real Actions minutes finding out. The lesson generalizes past this one incident — a failure that survives one retry attempt deserves root-causing before a second, not just a bigger timeout.
+- **I'd add a synthetic-canary check independent of the deploy pipeline.** Every readiness check this stack has (`/health`, `/ready`, `/api/ready`) only runs *during* a deploy. The 2026-08-19 outage happened between deploys, with nothing watching in the gap — CD's own health checks had nothing to fail against because CD wasn't running. A scheduled external check (even a 5-minute cron hitting `/ready`) is the obvious next layer, deliberately not built yet because it's a real new moving part (where does it alert to?) for a single-operator project that already checks its own dashboards.
+- **I'd reconsider self-hosted Redis before self-hosted Redis becomes a second incident.** It already caused one real outage-adjacent bug (D-060 — an unhandled Redis error crashed the whole runtime process, not just rate limiting). ElastiCache is the documented Phase 2 upgrade for cost reasons already priced in `docs/cost-breakdown.md`; the Redis-crash fix makes the self-hosted version safer, not the right long-term answer.
 
 ---
 
