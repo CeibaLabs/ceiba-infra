@@ -162,7 +162,7 @@ The most common cause of a catastrophic AWS bill isn't a design mistake — it's
 
 The deployment guide, the rollout runbook, the billing-guardrail response procedure, and the validation reports are **deliberately not published**. They describe how this specific production environment is operated — the ordered apply, the response to a firing alarm, the recovery path after an instance stop — and that is operating detail for one live account rather than reusable infrastructure.
 
-What is published is everything needed to understand and reproduce the architecture: all the Terraform, the ADRs behind the decisions, the cost model, and the compose stack that runs on the host. Their results and conclusions are summarised in this README where they matter.
+What is published is everything needed to understand and reproduce the architecture: all the Terraform, the ADRs behind the decisions, the cost model, and the compose stack that runs on the host. Their results and conclusions are summarised in this README where they matter. The ADR series itself is broader than infrastructure alone as of [ADR-0008](docs/ADR-0008-product-analytics.md) — it also records the reasoning behind product-level decisions worth documenting the same way, kept in one place deliberately rather than starting a second series.
 
 ---
 
@@ -242,6 +242,7 @@ ceiba-infra/
 │   ├── ADR-0005-oidc-branch-pinned-deploy-trust.md
 │   ├── ADR-0006-single-az-rds.md
 │   ├── ADR-0007-pin-ec2-ami.md
+│   ├── ADR-0008-product-analytics.md
 │   └── cost-breakdown.md
 │                                                    operator runbooks, the deployment guide, and validation
 │                                                    reports are maintained privately — see below
