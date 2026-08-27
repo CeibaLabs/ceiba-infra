@@ -1,6 +1,6 @@
 # ADR-0008: Product analytics scope — landing site + Control Plane (Option B)
 
-**Status:** accepted, Option C explicitly deferred
+**Status:** accepted, Instrumenting Runtime explicitly deferred
 **Date:** 2026-08-24
 
 ## A note on scope, before the rest of this document
