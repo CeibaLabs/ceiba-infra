@@ -118,6 +118,9 @@ resource "aws_iam_instance_profile" "ec2" {
 #   aws secretsmanager put-secret-value --secret-id ceiba/stripe-secret-key --secret-string '...'
 # This keeps real credentials out of both git and Terraform state.
 
+# Every name here must also appear in deploy/bootstrap-host.sh's FLAT_SECRETS
+# (or, for the database, as APP_DB_SECRET). A name in one and not the other is
+# either a secret nothing consumes or a secret nothing creates.
 locals {
   app_secret_names = [
     "stripe-secret-key",
@@ -127,6 +130,37 @@ locals {
     "resend-api-key",
     "seed-starter-stripe-price-id",
     "seed-pro-stripe-price-id",
+
+    # Runtime database credential: the dedicated ceiba_app role, NOT the
+    # RDS-managed master. Long-running containers connect with this; the
+    # master credential is for migrations and admin only and never reaches
+    # deploy/.env. Added after the 2026-08-27 outage, where the master
+    # password's 7-day automatic rotation broke every container that had it
+    # baked into .env at provisioning time.
+    "production/app-database",
+
+    # --- Added 2026-08-31 ---------------------------------------------------
+    # These five existed ONLY in deploy/.env on the running host: not in
+    # Secrets Manager, not in Terraform, not in git. When aws_instance.app was
+    # replaced on 2026-08-17 they were destroyed with it and had to be
+    # reconstructed by hand from external dashboards.
+    #
+    # What makes them dangerous is that every one fails SILENTLY. Nothing
+    # crashes, no readiness check goes red, no alarm fires - a webhook simply
+    # stops verifying, analytics simply stops recording, receipt email simply
+    # stops sending. The stack looks perfectly healthy while quietly doing
+    # less than it should.
+    #
+    # The last four are not secret in the cryptographic sense (the PostHog
+    # key ships to the browser; the receipt addresses are on outbound mail).
+    # They are here for DURABILITY, not confidentiality - one uniform place a
+    # replacement host can rebuild its entire .env from, unattended. That is
+    # worth ~$0.40/secret/month against a repeat of the 2026-08-17 recovery.
+    "clerk-webhook-signing-secret",
+    "posthog-key",
+    "posthog-host",
+    "receipt-from-email",
+    "receipt-reply-to",
   ]
 }
 

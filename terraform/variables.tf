@@ -204,3 +204,30 @@ variable "cd_deploy_branch" {
   type        = string
   default     = "dev"
 }
+
+variable "uptime_alert_email" {
+  description = <<-EOT
+    Where readiness alarms are delivered (uptime-monitoring.tf). Deliberately
+    its own variable rather than reusing budget_alert_email: an uptime page
+    is operational and wants a route you actually watch, while the billing
+    alert is financial. Set both to the same address if that's what you want,
+    but make it a choice.
+
+    AWS sends a subscription confirmation email on first apply. Until you
+    click it the alarm fires into nothing - confirm it, then test with the
+    procedure in the recovery runbook.
+  EOT
+  type        = string
+}
+
+variable "ceiba_api_host" {
+  description = "Public hostname of ceiba-runtime, health-checked at /ready."
+  type        = string
+  default     = "api.useceiba.com"
+}
+
+variable "ceiba_app_host" {
+  description = "Public hostname of ceiba-control-plane, health-checked at /api/ready."
+  type        = string
+  default     = "app.useceiba.com"
+}

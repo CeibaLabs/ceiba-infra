@@ -22,3 +22,13 @@ ec2_ami_id = "ami-0f97d2a7376b155c7"
 
 # Everything else has a sensible Phase-1 default in variables.tf — override
 # here only if you have a specific reason to.
+
+# Readiness alarms (uptime-monitoring.tf). Required - no default, because a
+# monitoring stack that pages a placeholder address is worse than none: it
+# looks like coverage and isn't. AWS emails a subscription confirmation on
+# first apply; the alarm is inert until you click it.
+uptime_alert_email = "you@example.com"
+
+# Only override these if the public hostnames change.
+# ceiba_api_host = "api.useceiba.com"
+# ceiba_app_host = "app.useceiba.com"
