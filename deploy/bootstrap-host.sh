@@ -74,6 +74,7 @@ FLAT_SECRETS=(
   "NEXT_PUBLIC_POSTHOG_HOST:ceiba/posthog-host"
   "CEIBA_SEED_STARTER_STRIPE_PRICE_ID:ceiba/seed-starter-stripe-price-id"
   "CEIBA_SEED_PRO_STRIPE_PRICE_ID:ceiba/seed-pro-stripe-price-id"
+  "CEIBA_ACME_EMAIL:ceiba/acme-email"
 )
 
 fetch_secret() {
@@ -126,6 +127,11 @@ for pair in "${FLAT_SECRETS[@]}"; do
   key="${pair%%:*}"; name="${pair##*:}"
   if value="$(fetch_secret "$name")" && [ -n "$value" ]; then
     RESOLVED+=("${key}=${value}")
+    # Only CEIBA_ACME_EMAIL is consumed by this script's own logic (the Caddy
+    # check below). Exporting every secret would place all of them in the
+    # environment of every child process this script spawns - docker, aws,
+    # curl - readable from /proc/<pid>/environ, for no benefit.
+    if [ "$key" = "CEIBA_ACME_EMAIL" ]; then export CEIBA_ACME_EMAIL="$value"; fi
     note "ok       $key"
   else
     # Still emit the key, empty. A present-but-blank variable is far easier
@@ -196,7 +202,10 @@ trap 'rm -f "$tmp"' EXIT
   echo "RUNTIME_IMAGE=${RUNTIME_IMAGE}"
   echo "CEIBA_APP_HOST=${CEIBA_APP_HOST}"
   echo "CEIBA_API_HOST=${CEIBA_API_HOST}"
-  echo "CEIBA_ACME_EMAIL=${CEIBA_ACME_EMAIL}"
+  # CEIBA_ACME_EMAIL is deliberately NOT echoed here: it comes from
+  # ceiba/acme-email and is written by the secrets block below. Emitting it in
+  # both places put the key in .env twice - harmless while the values agreed
+  # (Compose takes the last), but a trap the moment someone edits one of them.
   echo
   echo "# ceiba_app role - NOT the RDS master. See the header of this script."
   echo "DATABASE_URL=${DATABASE_URL}"

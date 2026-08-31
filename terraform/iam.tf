@@ -32,12 +32,6 @@ data "aws_iam_policy_document" "ec2_secrets_read" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [for s in aws_secretsmanager_secret.app : s.arn]
   }
-
-  statement {
-    sid       = "ReadRdsMasterCredential"
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_db_instance.ceiba.master_user_secret[0].secret_arn]
-  }
 }
 
 resource "aws_iam_role_policy" "ec2_secrets_read" {
@@ -161,6 +155,7 @@ locals {
     "posthog-host",
     "receipt-from-email",
     "receipt-reply-to",
+    "acme-email"
   ]
 }
 
