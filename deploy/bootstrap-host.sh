@@ -105,8 +105,9 @@ DB_NAME="$(jq -r '.dbname   // "ceiba"' <<<"$APP_DB_JSON")"
 # Refuse to build a runtime URL from the master role. The master account is
 # for migrations only; if it ends up in .env it will break at the next
 # 7-day rotation, and it hands every container permission to drop the schema.
+# ceiba_admin is var.rds_master_username's default (terraform/variables.tf).
 case "$DB_USER" in
-  postgres|ceibaadmin|rdsadmin|master|admin)
+  postgres|ceiba_admin|ceibaadmin|rdsadmin|master|admin)
     die "$APP_DB_SECRET holds the MASTER user '$DB_USER'. .env must carry the ceiba_app role. Refusing." ;;
 esac
 
