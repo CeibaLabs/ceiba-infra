@@ -8,7 +8,7 @@ Infrastructure and deployment for [Ceiba App](https://app.useceiba.com), [Ceiba 
 
 ## Status
 
-> **Current phase:** applied and live. The Phase 1 stack is deployed in `ca-central-1` and serving production traffic over HTTPS — `app.useceiba.com` and `api.useceiba.com` both respond. See [Rollout](#rollout) for the ordered plan.
+> **Current phase:** applied, live, and drilled. *(Updated 2026-09-16.)* The Phase 1 stack is deployed in `ca-central-1` and serving production traffic over HTTPS — `app.useceiba.com` and `api.useceiba.com` both respond. The billing guardrail and the readiness alarms have now been fired against production and verified end to end; EC2 lifecycle transitions are recorded to CloudWatch Logs via EventBridge. See [Validation](#validation) for what was measured and [Rollout](#rollout) for the ordered plan.
 
 **Deploying this yourself?** [Running it](#running-it) covers the shape of it. The step-by-step operator guide — identity setup, the ordered apply, images to ECR, DNS/TLS, and the promotion gate — is maintained privately alongside the runbooks; see [Operational documentation](#operational-documentation).
 
@@ -122,7 +122,25 @@ Evidence that this infrastructure was verified, not just built. The full reports
 
 **Publicly verifiable right now, not just described:** <https://api.useceiba.com/version> and <https://app.useceiba.com/api/version> report the exact commit currently deployed; <https://api.useceiba.com/ready> and <https://app.useceiba.com/api/ready> report real per-dependency health (database, and Redis for the Runtime), not process liveness — see D-059 in the private decisions log for the outage that motivated the distinction.
 
-**Not yet validated, stated plainly:** the billing guardrail chain (CloudWatch alarm → SNS → Lambda auto-shutdown) has never been fired end to end. It is configured; it is unproven. See [Known limitations](#known-limitations).
+**Billing-guardrail and readiness drill (2026-09-14 and 2026-09-16).** The alarm → SNS → Lambda auto-shutdown chain was fired against **production**, three times, really stopping the instance — not a direct Lambda invoke, which would skip two of the four links, and not a dry run. Full report maintained privately.
+
+The objective that mattered: the Lambda's `ec2:StopInstances` permission had been narrowed from `"*"` to a single instance ARN *after* its last verification, so a wrong scope would have failed silently at the one moment it was needed. It passed on all three runs — **4 seconds from alarm state change to a successful `StopInstances` call**, no `AccessDenied`.
+
+Measured rather than estimated:
+
+| Interval | Measured |
+|---|---|
+| Alarm `ALARM` → `StopInstances` | 4 s (all three runs) |
+| `running` → `stopped` | 19 s |
+| `pending` → `running` | 4 s |
+| Outage detected by readiness alarms | 4 min 02 s |
+| Total outage, best run | ~2 min 32 s |
+
+The stack recovered unattended every time: containers via `restart: unless-stopped`, database via the dedicated least-privilege application role, and an unchanged Elastic IP so DNS needed no intervention. All alarms returned to `OK` on their own.
+
+**A measurement gap the drill found, and the fix.** Polling `describe-instances` could not capture the stop: a sample taken 19 seconds after the stop already read `stopped`. A point-in-time call is not a state-history mechanism, and CloudTrail does not substitute — it records the API *call*, never the transition. `terraform/instance-lifecycle-events.tf` now routes EC2 state-change events to a CloudWatch log group (365-day retention), and the third drill run confirmed it captures `stopping`/`stopped`/`pending`/`running` at the moment each occurs.
+
+**Still unmeasured, stated plainly:** alert *email receipt* times have never been recorded. Delivery is confirmed, but that means "breakage → the monitoring system knows" is measured at 4 min 02 s while "breakage → a human knows" is not.
 
 ---
 
@@ -170,13 +188,13 @@ What is published is everything needed to understand and reproduce the architect
 
 Stated because they are true, not because they are comfortable. Every one of these is a real gap in an otherwise-live system.
 
-- **The billing guardrail has never been fired.** The CloudWatch alarm → SNS → Lambda auto-shutdown chain is configured and applied, but no one has ever driven it to `ALARM` and watched the instance stop. One link is both untested and recently changed: the Lambda's `ec2:StopInstances` permission was narrowed from `"*"` to a single instance ARN, and if that scoping is wrong the guardrail fails silently at the moment it is needed. Until the drill runs, this is a design, not a control.
+- **The billing guardrail is not real-time.** It has now been fired and verified end to end (see [Validation](#validation)), so it is a control rather than a design — but AWS billing metrics update every few hours, so it catches a slow leak, not an instant spend spike. Against that class of risk the IAM, secrets, and network controls below matter far more. It also deliberately never stops RDS: a stopped RDS instance restarts itself after 7 days, which would be a false sense of security.
 - **Terraform state is local.** Single operator, single machine, no locking, no remote backup. See [ADR-0003](docs/ADR-0003-local-state.md), which states the exact conditions that should trigger a move to S3 + DynamoDB.
 - **Single AZ, single instance.** An AZ failure or an instance failure is downtime, not a failover. This is a deliberate cost decision at pre-revenue scale, not an oversight — see [ADR-0006](docs/ADR-0006-single-az-rds.md) for the priced alternative and the reversal criteria.
 - **`docs.useceiba.com` is not served by this stack.** `ceiba-docs` has no container here and is hosted separately.
 - **No pre-commit secret scanning.** CI runs `gitleaks` on every push/PR across all three repos (this one included) and fails the build on a match, which blocks merge and — since CD only fires on CI success — deploy too. That's a stronger gate than a local pre-commit hook would be (uniform regardless of who or what authored the commit, can't be skipped with `--no-verify`), but it's still a point of catch, not prevention: a secret can still be typed into a commit, it just won't survive the next push.
 
-Two items that used to live here are resolved and worth naming explicitly rather than silently dropping: **CD is live** on both app repos (native `ubuntu-24.04-arm` build, digest-verified deploy, automatic rollback on a failed health/readiness check — not manual, not undrilled; images are built off-host and pushed to ECR, [ADR-0004](docs/ADR-0004-ecr-over-host-build.md)), and the earlier credential blocker that once gated it (`ceiba-core-domain`'s private-repo checkout) is closed via a GitHub App token minted per run. See [`diagrams/cd-pipeline.png`](diagrams/cd-pipeline.png) for the full push-to-verified-deploy path.
+Three items that used to live here are resolved and worth naming explicitly rather than silently dropping: **the billing guardrail has been drilled** (three real fires against production, 2026-09-14 and 2026-09-16 — the narrowed IAM scope works, the instance stops, the stack recovers unattended), **CD is live** on both app repos (native `ubuntu-24.04-arm` build, digest-verified deploy, automatic rollback on a failed health/readiness check — not manual, not undrilled; images are built off-host and pushed to ECR, [ADR-0004](docs/ADR-0004-ecr-over-host-build.md)), and the earlier credential blocker that once gated it (`ceiba-core-domain`'s private-repo checkout) is closed via a GitHub App token minted per run. See [`diagrams/cd-pipeline.png`](diagrams/cd-pipeline.png) for the full push-to-verified-deploy path.
 
 ---
 
@@ -227,6 +245,8 @@ ceiba-infra/
 │   ├── providers.tf  variables.tf  outputs.tf
 │   ├── vpc.tf  ec2.tf  rds.tf  iam.tf  ecr.tf
 │   ├── budgets.tf  cloudwatch-billing-alarm.tf
+│   ├── uptime-monitoring.tf                        Route 53 health checks + readiness alarms (us-east-1)
+│   ├── instance-lifecycle-events.tf                EventBridge -> CloudWatch Logs EC2 state-change audit trail
 │   ├── s3-and-audit.tf                             S3 backups bucket + CloudTrail
 │   ├── terraform.tfvars.example                    placeholders only; terraform.tfvars is gitignored
 │   └── lambda-auto-shutdown/    handler.py + iam-policy.json (reference copy of the live iam.tf policy)
@@ -278,3 +298,59 @@ terraform apply
 ## Related
 
 - **Homelab platform** — the single-node, four-failure-domain environment that serves as Ceiba's dev/staging tier. It doesn't disappear when production moves to AWS; it stops being the production target.
+
+---
+
+## Changelog
+
+Dated entries for changes that alter what this infrastructure *does*, not routine edits. Newest first.
+
+### 2026-09-16 — EC2 lifecycle audit trail
+
+`instance-lifecycle-events.tf`: an EventBridge rule routes every EC2 state-change notification
+(`pending`, `running`, `stopping`, `stopped`, `shutting-down`, `terminated`) to a CloudWatch log group
+with 365-day retention, in `ca-central-1`.
+
+It records; it does not alert. Nothing is wired to SNS, and deliberately not to the billing topic —
+that topic's Lambda subscriber stops the instance on any message it receives.
+
+Two reasons it exists. The drill below found that polling `describe-instances` cannot capture a
+transition that completes in under 19 seconds, and CloudTrail answers a different question (who called
+the API, not when the state changed). Separately, an earlier `terraform apply` once replaced the app
+instance as a side effect; a lifecycle log makes that class of event legible after the fact instead of
+requiring reconstruction from indirect evidence.
+
+The rule is deliberately **not** filtered by instance ID — this account runs one instance, so the
+event stream is identical either way, and an unfiltered rule keeps recording across a replacement,
+which is the case it most needs to catch.
+
+### 2026-09-14 — billing guardrail drilled against production
+
+The alarm → SNS → Lambda auto-shutdown chain fired end to end for the first time, really stopping the
+production instance. Verified the Lambda's narrowed `ec2:StopInstances` scope, measured the blind
+window at 4 min 02 s, and confirmed unattended recovery. See [Validation](#validation).
+
+### 2026-08-31 — database credential separation
+
+The application connects with a dedicated least-privilege role that cannot create or drop schema
+objects; the RDS-managed master credential is reserved for migrations and admin, invoked by an
+operator and never written to the host's environment file. The host's IAM role can no longer read the
+master credential at all, so the separation is structural rather than conventional.
+
+This closed an outage class: the managed master password rotates automatically every 7 days, and a
+copy baked into the host's environment worked until the first rotation and then failed everywhere at
+once, with no deploy to correlate against.
+
+`deploy/bootstrap-host.sh` rebuilds the host's environment file from Secrets Manager and refuses to
+run if the database secret turns out to hold a master credential.
+
+### 2026-08-20 — CD moved off QEMU to native arm64 runners
+
+Three consecutive real deploy failures with an identical crash signature, then a fix and measured
+before/after timing. See [Validation](#validation).
+
+### 2026-08-17 — EC2 AMI pinned
+
+An apply intended only to fix an IAM policy also replaced the running host, because `ami` resolved
+from a `most_recent = true` lookup. The instance now takes a pinned variable; the lookup survives only
+to report what a deliberate bump would move to. See [ADR-0007](docs/ADR-0007-pin-ec2-ami.md).
