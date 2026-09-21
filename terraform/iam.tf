@@ -155,7 +155,27 @@ locals {
     "posthog-host",
     "receipt-from-email",
     "receipt-reply-to",
-    "acme-email"
+    "acme-email",
+
+    # --- Added 2026-09-21: CD authorize round-trip -------------------------
+    # Credentials for a DEDICATED smoke project that CD uses after every
+    # deploy to prove a real authorize call is still allowed, and that an
+    # invalid key is still denied. See ceiba-runtime/.github/workflows/cd.yml.
+    #
+    # EXCEPTION to the sync rule above: these three are deliberately NOT in
+    # deploy/bootstrap-host.sh's FLAT_SECRETS and never reach deploy/.env.
+    # Neither application reads them - only the deploy script does, at
+    # verification time, via the instance role. Putting them in .env would
+    # hand two internet-facing containers a credential they have no use for.
+    #
+    # They live here rather than in GitHub secrets because the verification
+    # runs ON THE HOST: the deploy script is shipped as an SSM
+    # AWS-RunShellScript `commands` parameter, and those parameters persist in
+    # SSM command history. A secret interpolated into that script would be
+    # readable by anyone with ssm:GetCommandInvocation, indefinitely.
+    "smoke-project-id",
+    "smoke-project-secret",
+    "smoke-api-key",
   ]
 }
 
